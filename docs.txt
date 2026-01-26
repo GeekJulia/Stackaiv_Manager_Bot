@@ -99,3 +99,16 @@ CREATE TABLE payments (
 );
 
 Supabase Password for this project = > #stackaiv1234
+
+/start
+ → Select Level
+ → Select College
+ → Select Program
+ → Activation Check
+
+ Example of usage of queries for db: if __name__ == "__main__":
+    admin_id = create_admin("admin1", "hashed_password_here")
+    print("New admin ID:", admin_id)
+
+    admin = get_admin_by_username("admin1")
+    print("Admin record:", admin)
