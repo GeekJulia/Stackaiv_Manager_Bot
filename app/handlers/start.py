@@ -1,11 +1,35 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-# from app.services.programs import create_or_get_program, check_activation
+from ..database.queries import save_user, save_program
+
+user_sessions = {}
 
 COLLEGES = {
-    "CST": ["Computer Science", "Information Tech"],
-    "COE": ["Civil Engineering", "Electrical Engineering"],
-    "CLDS": ["Law", "International Law"],
-    "CMSS": ["Economics", "Sociology"]
+    "CST": [
+        "COMPUTER SCIENCE", "BIOCHEMISTRY", "ARCHITECTURE", "BIOLOGY",
+        "BUILDING TECHNOLOGY", "BUSINESS ADMINISTRATION", "ESTATE MANAGEMENT",
+        "INDUSTRIAL CHEMISTRY", "INDUSTRIAL MATHEMATICS",
+        "INDUSTRIAL PHYSICS WITH APPLIED GEOPHYSICS",
+        "INDUSTRIAL PHYSICS WITH ELECTRONICS AND IT APPLICATION",
+        "INDUSTRIAL PHYSICS WITH RENEWABLE ENERGY",
+        "MANAGEMENT INFORMATION SYSTEM", "MICROBIOLOGY"
+    ],
+    "COE": [
+        "CIVIL ENGINEERING", "ELECTRICAL/ELECTRONICS ENGINEERING",
+        "CHEMICAL ENGINEERING", "COMPUTER ENGINEERING",
+        "INFORMATION AND COMMUNICATION ENGINEERING",
+        "MECHANICAL ENGINEERING", "PETROLEUM ENGINEERING"
+    ],
+    "CLDS": [
+        "DEMOGRAPHY AND SOCIAL STATISTICS", "ENGLISH LANGUAGE", "FRENCH",
+        "INTERNATIONAL RELATIONS", "POLICY AND STRATEGIC STUDIES",
+        "POLITICAL SCIENCE", "PSYCHOLOGY"
+    ],
+    "CMSS": [
+        "ECONOMICS", "SOCIOLOGY", "ACCOUNTING", "BANKING AND FINANCE",
+        "INDUSTRIAL RELATIONS",
+        "INDUSTRIAL RELATIONS AND HUMAN RESOURCES MANAGEMENT",
+        "MARKETING", "MASS COMMUNICATION"
+    ]
 }
 
 # -------------------------
@@ -24,7 +48,8 @@ def start_handler(bot):
         bot.send_message(
             message.chat.id,
             "👋 Welcome to Stackaiv\n\nSelect your level:",
-            reply_markup=kb
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
 
 # -------------------------
@@ -34,6 +59,8 @@ def start_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("level:"))
     def handle_level(call):
         level = call.data.split(":")[1]
+
+        user_sessions[call.from_user.id] = {"level": level}
 
         kb = InlineKeyboardMarkup()
         for college in COLLEGES.keys():
@@ -57,6 +84,8 @@ def start_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("college:"))
     def handle_college(call):
         college = call.data.split(":")[1]
+
+        user_sessions[call.from_user.id]["college"] = college
 
         kb = InlineKeyboardMarkup()
         programs = COLLEGES.get(college, [])
@@ -82,6 +111,23 @@ def start_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("program:"))
     def handle_program(call):
         program = call.data.split(":")[1]
+        user = call.from_user
+        session = user_sessions.get(user.id)
+
+        # Save Telegram user
+        save_user(
+            telegram_id=user.id,
+            username=user.username,
+            first_name=user.first_name
+        )
+
+         # Save program
+        save_program(
+            level=session["level"],
+            college=session["college"],
+            program_name=program,
+            telegram_id=user.id
+        )
 
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -93,3 +139,4 @@ def start_handler(bot):
             ),
             parse_mode="Markdown"
         )
+        user_sessions.pop(user.id, None)
