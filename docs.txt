@@ -26,7 +26,7 @@ CREATE TABLE programs (
     level TEXT NOT NULL,
     college TEXT NOT NULL,
     name TEXT NOT NULL,
-    created_by BIGINT REFERENCES users(telegram_id),
+    created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT NOW(),
     is_active BOOLEAN DEFAULT FALSE
 );

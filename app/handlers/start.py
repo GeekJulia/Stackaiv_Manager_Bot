@@ -138,7 +138,7 @@ def start_handler(bot):
         session = user_sessions.get(user.id)
 
         # Save Telegram user
-        save_user(
+        user_id = save_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name
@@ -149,7 +149,7 @@ def start_handler(bot):
             level=session["level"],
             college=session["college"],
             program_name=program,
-            telegram_id=user.id
+            user_id=user_id
         )
 
         bot.edit_message_text(
