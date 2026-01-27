@@ -152,15 +152,24 @@ def start_handler(bot):
             user_id=user_id
         )
 
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton(
+                "Add courses",
+                callback_data="cmd:addcourses"
+            )
+        )
+
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
                 "🎉 *Registration Complete!*\n\n"
                 f"📘 Program: *{program}*\n\n"
-                "You can now continue using the bot."
+                "Set up your academic space."
             ),
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=kb
         )
 
         user_sessions.pop(user_id, None)
