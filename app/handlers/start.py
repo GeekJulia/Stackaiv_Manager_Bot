@@ -40,6 +40,8 @@ def start_handler(bot):
 
     @bot.message_handler(commands=['start'])
     def start(message):
+        user_sessions[message.from_user.id] = {}
+
         kb = InlineKeyboardMarkup()
         levels = ['100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
         for lvl in levels:
@@ -58,8 +60,14 @@ def start_handler(bot):
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith("level:"))
     def handle_level(call):
+        user_id = call.from_user.id
         level = call.data.split(":")[1]
 
+        # Prevent double selection
+        if user_sessions.get(user_id, {}).get("level"):
+            bot.answer_callback_query(call.id, "Level already selected.")
+            return
+        
         user_sessions[call.from_user.id] = {"level": level}
 
         kb = InlineKeyboardMarkup()
@@ -70,6 +78,7 @@ def start_handler(bot):
                     callback_data=f"college:{college}",
                 )
             )
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="back:level"))
 
         bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -83,7 +92,13 @@ def start_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("college:"))
     def handle_college(call):
+        user_id = call.from_user.id
         college = call.data.split(":")[1]
+
+
+        if user_sessions.get(user_id, {}).get("college"):
+            bot.answer_callback_query(call.id, "College already selected.")
+            return
 
         user_sessions[call.from_user.id]["college"] = college
 
@@ -97,6 +112,7 @@ def start_handler(bot):
                     callback_data=f"program:{program}"
                 )
             )
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="back:college"))
 
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -110,8 +126,16 @@ def start_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("program:"))
     def handle_program(call):
+        user_id = call.from_user.id
         program = call.data.split(":")[1]
         user = call.from_user
+
+        if user_sessions.get(user_id, {}).get("program"):
+            bot.answer_callback_query(call.id, "Program already selected.")
+            return
+
+        user_sessions[user_id]["program"] = program
+
         session = user_sessions.get(user.id)
 
         # Save Telegram user
@@ -139,4 +163,47 @@ def start_handler(bot):
             ),
             parse_mode="Markdown"
         )
-        user_sessions.pop(user.id, None)
+
+        user_sessions.pop(user_id, None)
+
+    # -------------------------
+    # Back Navigation/UNCHECKED
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("back:"))
+    def handle_back(call):
+        user_id = call.from_user.id
+        step = call.data.split(":")[1]
+
+        # Back to level selection
+        if step == "level":
+            user_sessions[user_id] = {}
+
+            kb = InlineKeyboardMarkup()
+            levels = ['100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
+            for lvl in levels:
+                kb.add(InlineKeyboardButton(lvl, callback_data=f"level:{lvl}"))
+
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="🔄 Select your level:",
+                reply_markup=kb
+            )
+
+        # Back to college selection
+        elif step == "college":
+            user_sessions[user_id].pop("college", None)
+
+            kb = InlineKeyboardMarkup()
+            for college in COLLEGES.keys():
+                kb.add(InlineKeyboardButton(college, callback_data=f"college:{college}"))
+
+            kb.add(InlineKeyboardButton("⬅️ Back", callback_data="back:level"))
+
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"🔄 Level: *{user_sessions[user_id]['level']}*\n\nSelect your college:",
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )

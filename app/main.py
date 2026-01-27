@@ -1,7 +1,7 @@
 import os
 import telebot
 from dotenv import load_dotenv
-from handlers.start import start_handler
+from .handlers.start import start_handler
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
