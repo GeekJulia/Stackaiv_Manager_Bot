@@ -135,7 +135,6 @@ def start_handler(bot):
             return
 
         user_sessions[user_id]["program"] = program
-
         session = user_sessions.get(user.id)
 
         # Save Telegram user
