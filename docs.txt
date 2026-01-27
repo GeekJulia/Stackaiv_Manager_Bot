@@ -112,3 +112,50 @@ Supabase Password for this project = > #stackaiv1234
 
     admin = get_admin_by_username("admin1")
     print("Admin record:", admin)
+│
+├── app/
+│   ├── main.py              # Bot entry point
+│   ├── config.py             
+│
+│   ├── handlers/            # Telegram logic
+│   │   ├── start.py
+│   │   ├── notes.py
+│   │   ├── files.py
+│   │   ├── groups.py
+│   │   └── payments.py
+│
+│   ├── services/            # Business logic
+│   │   ├── notes.py
+│   │   ├── files.py
+│   │   ├── groups.py
+│   │   ├── payments.py
+│   │   └── storage.py
+│
+│   ├── db/
+│   │   ├── client.py        # Supabase/Postgres client
+│   │   ├── models.sql       # Table definitions
+│   │   └── queries.py       # Reusable DB functions
+│
+│   ├── keyboards/
+│   │   ├── menus.py
+│   │   └── confirm.py
+│
+│   └── utils/
+│       ├── logger.py
+│       ├── pagination.py
+│       └── validators.py
+│
+├── data/
+│   ├── uploads/
+│   └── temp/
+│
+├── scripts/
+│   ├── init_db.sql
+│   └── cleanup.py
+│
+├── tests/
+│
+├── .env
+├── .gitignore
+├── requirements.txt
+└── README.md
