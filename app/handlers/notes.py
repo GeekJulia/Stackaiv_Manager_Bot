@@ -121,10 +121,27 @@ def notes_handler(bot):
                     list(session["selected_resources"])
                 )
 
-            bot.send_message(
-                call.message.chat.id,
-                "🎉 *Resource setup complete!*\nYour program hub is ready.",
-                parse_mode="Markdown"
+            program_id = get_user_program_id(call.from_user.id)
+            # program = get_program_info(program_id)
+
+            kb = InlineKeyboardMarkup(row_width=2)
+            kb.add(
+                InlineKeyboardButton("📚 All Courses", callback_data="hub:courses"),
+                InlineKeyboardButton("➕ Add Resource", callback_data="hub:add"),
+                InlineKeyboardButton("📥 Get Resource", callback_data="hub:get"),
+                InlineKeyboardButton("ℹ️ Help Info", callback_data="hub:help"),
             )
+
+            bot.send_message(
+            call.message.chat.id,
+            (
+                "🎉 *Resource setup successful!*\n\n"
+                "👋 Welcome to your *Computer Science 400 Level* "
+                "digital central resource hub.\n\n"
+                "What would you like to do?"
+            ),
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
 
             notes_sessions.pop(user_id, None)

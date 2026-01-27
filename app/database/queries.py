@@ -89,3 +89,45 @@ def save_course_resource_types(course_id, resource_type_ids):
                 ON CONFLICT DO NOTHING
             """, (course_id, r_id))
         conn.commit()
+
+def get_courses_by_program(program_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, course_code
+            FROM courses
+            WHERE program_id = %s
+        """, (program_id,))
+        return [{"id": r[0], "course_code": r[1]} for r in cursor.fetchall()]
+
+
+def save_resource(course_id, resource_type_id, file_id, file_name, uploader_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO resources (course_id, resource_type_id, file_id, file_name, uploader_id)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (file_id) DO NOTHING
+        """, (course_id, resource_type_id, file_id, file_name, uploader_id))
+        conn.commit()
+
+
+def get_resources_by_course_and_type(course_id, resource_type_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT file_id, file_name
+            FROM resources
+            WHERE course_id = %s AND resource_type_id = %s
+            ORDER BY created_at
+        """, (course_id, resource_type_id))
+        return [{"file_id": r[0], "file_name": r[1]} for r in cursor.fetchall()]
+    
+def get_course_info(course_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, course_code
+            FROM courses
+            WHERE id = %s
+        """, (course_id,))
+        r = cursor.fetchone()
+        if r:
+            return {"id": r[0], "course_code": r[1]}
+        return None
