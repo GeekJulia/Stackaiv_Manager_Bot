@@ -10,7 +10,7 @@
 | approvals           | Who approved a file          |
 | payments            | Paystack records             |
 
-$ source venv/Scripts/activate
+source venv/Scripts/activate
 
 Initial DB structure: 
 -- USERS

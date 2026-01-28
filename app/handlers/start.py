@@ -1,5 +1,5 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from ..database.queries import save_user, save_program
+from ..database.queries import save_user, save_program, get_user_program_id
 
 user_sessions = {}
 
@@ -53,6 +53,30 @@ def start_handler(bot):
             reply_markup=kb,
             parse_mode="Markdown"
         )
+
+    # -------------------------
+    # Who Am I Command
+    # -------------------------
+    @bot.message_handler(commands=['whoami'])
+    def whoami(message):
+        user_id = message.from_user.id
+        try:
+            program_id = get_user_program_id(user_id)
+            bot.send_message(
+                message.chat.id,
+                f"ℹ️ <b>Your Info</b>\n\n"
+                f"👤 Username: @{message.from_user.username or 'N/A'}\n"
+                f"📱 Telegram ID: <code>{user_id}</code>\n"
+                f"🎓 Program ID: <code>{program_id}</code>\n\n"
+                f"Use this Program ID with /setupgroup",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            bot.send_message(
+                message.chat.id,
+                "❌ Not registered yet.\n\nRun /start to complete registration.",
+                parse_mode="HTML"
+            )
 
 # -------------------------
 # Level Selected → Ask for College

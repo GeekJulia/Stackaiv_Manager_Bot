@@ -131,3 +131,67 @@ def get_course_info(course_id):
         if r:
             return {"id": r[0], "course_code": r[1]}
         return None
+
+# -------------------------
+# GROUPS
+# -------------------------
+def save_group(chat_id, program_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO groups (telegram_chat_id, program_id)
+            VALUES (%s, %s)
+            ON CONFLICT (telegram_chat_id) DO NOTHING
+        """, (chat_id, program_id))
+        conn.commit()
+
+
+def get_group_program_id(chat_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT program_id
+            FROM groups
+            WHERE telegram_chat_id = %s
+        """, (chat_id,))
+        r = cursor.fetchone()
+        return r[0] if r else None
+
+
+# -------------------------
+# FILE DUPLICATE CHECK
+# -------------------------
+def is_file_duplicate(file_name, course_id):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT 1
+            FROM resources
+            WHERE file_name = %s AND course_id = %s
+        """, (file_name, course_id))
+        return cursor.fetchone() is not None
+
+
+# -------------------------
+# GET COURSE BY CODE
+# -------------------------
+def get_course_by_code(program_id, course_code):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, course_code
+            FROM courses
+            WHERE program_id = %s AND course_code = %s
+        """, (program_id, course_code))
+        r = cursor.fetchone()
+        if r:
+            return {"id": r[0], "course_code": r[1]}
+        return None
+
+
+# -------------------------
+# APPROVAL
+# -------------------------
+def save_approval(resource_id, approved_by):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO approvals (resource_id, approved_by)
+            VALUES (%s, %s)
+        """, (resource_id, approved_by))
+        conn.commit()
