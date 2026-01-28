@@ -195,3 +195,16 @@ def save_approval(resource_id, approved_by):
             VALUES (%s, %s)
         """, (resource_id, approved_by))
         conn.commit()
+
+def get_program_info(program_id):
+    """Fetch program level, college, and name."""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT level, college, name
+            FROM programs
+            WHERE id = %s
+        """, (program_id,))
+        row = cursor.fetchone()
+        if row:
+            return {"level": row[0], "college": row[1], "name": row[2]}
+        return None
