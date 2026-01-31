@@ -39,7 +39,7 @@ def files_handler(bot):
 
             bot.send_message(
                 message.chat.id,
-                "❌ Operation cancelled.\nYou’re back in your resource hub."
+                "❌ Operation cancelled.\nYou're back in your resource hub."
             )
 
     # -------------------------
@@ -126,9 +126,9 @@ def files_handler(bot):
         )
 
     # -------------------------
-    # RECEIVE FILE & SAVE
+    # RECEIVE FILE & SAVE (PRIVATE CHAT ONLY!)
     # -------------------------
-    @bot.message_handler(content_types=['document'])
+    @bot.message_handler(content_types=['document'], func=lambda m: m.chat.type == 'private')
     def receive_file(message):
         session = file_sessions.get(message.from_user.id)
         if not session or session.get("stage") != "awaiting_file":

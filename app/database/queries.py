@@ -106,8 +106,11 @@ def save_resource(course_id, resource_type_id, file_id, file_name, uploader_id):
             INSERT INTO resources (course_id, resource_type_id, file_id, file_name, uploader_id)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (file_id) DO NOTHING
+            RETURNING id
         """, (course_id, resource_type_id, file_id, file_name, uploader_id))
         conn.commit()
+        result = cursor.fetchone()
+        return result[0] if result else None
 
 
 def get_resources_by_course_and_type(course_id, resource_type_id):
@@ -133,78 +136,70 @@ def get_course_info(course_id):
         return None
 
 # -------------------------
-# GROUPS
+# GROUP MANAGEMENT FUNCTIONS
 # -------------------------
-def save_group(chat_id, program_id):
+
+def get_program_by_id(program_id):
+    """Get program details by program ID"""
     with conn.cursor() as cursor:
         cursor.execute("""
-            INSERT INTO groups (telegram_chat_id, program_id)
-            VALUES (%s, %s)
-            ON CONFLICT (telegram_chat_id) DO NOTHING
-        """, (chat_id, program_id))
+            SELECT id, level, college, name
+            FROM programs
+            WHERE id = %s
+        """, (program_id,))
+        r = cursor.fetchone()
+        if r:
+            return {
+                "id": r[0],
+                "level": r[1],
+                "college": r[2],
+                "name": r[3]
+            }
+        return None
+
+def save_group(telegram_chat_id, program_id):
+    """Save or update group chat with program ID"""
+    with conn.cursor() as cursor:
+        query = """
+        INSERT INTO groups (telegram_chat_id, program_id)
+        VALUES (%s, %s)
+        ON CONFLICT (telegram_chat_id) DO UPDATE
+        SET program_id = EXCLUDED.program_id
+        RETURNING id;
+        """
+        cursor.execute(query, (telegram_chat_id, program_id))
         conn.commit()
+        return cursor.fetchone()[0]
 
-
-def get_group_program_id(chat_id):
+def get_group_program_id(telegram_chat_id):
+    """Get program ID for a group chat"""
     with conn.cursor() as cursor:
         cursor.execute("""
             SELECT program_id
             FROM groups
             WHERE telegram_chat_id = %s
-        """, (chat_id,))
-        r = cursor.fetchone()
-        return r[0] if r else None
+        """, (telegram_chat_id,))
+        result = cursor.fetchone()
+        return result[0] if result else None
 
-
-# -------------------------
-# FILE DUPLICATE CHECK
-# -------------------------
-def is_file_duplicate(file_name, course_id):
+def check_duplicate_resource(course_id, resource_type_id, file_name):
+    """Check if a resource with the same filename already exists"""
     with conn.cursor() as cursor:
         cursor.execute("""
-            SELECT 1
+            SELECT COUNT(*)
             FROM resources
-            WHERE file_name = %s AND course_id = %s
-        """, (file_name, course_id))
-        return cursor.fetchone() is not None
+            WHERE course_id = %s 
+            AND resource_type_id = %s 
+            AND file_name = %s
+        """, (course_id, resource_type_id, file_name))
+        count = cursor.fetchone()[0]
+        return count > 0
 
-
-# -------------------------
-# GET COURSE BY CODE
-# -------------------------
-def get_course_by_code(program_id, course_code):
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT id, course_code
-            FROM courses
-            WHERE program_id = %s AND course_code = %s
-        """, (program_id, course_code))
-        r = cursor.fetchone()
-        if r:
-            return {"id": r[0], "course_code": r[1]}
-        return None
-
-
-# -------------------------
-# APPROVAL
-# -------------------------
-def save_approval(resource_id, approved_by):
+def save_approval(resource_id, approved_by_telegram_id):
+    """Save approval record"""
     with conn.cursor() as cursor:
         cursor.execute("""
             INSERT INTO approvals (resource_id, approved_by)
             VALUES (%s, %s)
-        """, (resource_id, approved_by))
+        """, (resource_id, approved_by_telegram_id))
         conn.commit()
-
-def get_program_info(program_id):
-    """Fetch program level, college, and name."""
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT level, college, name
-            FROM programs
-            WHERE id = %s
-        """, (program_id,))
-        row = cursor.fetchone()
-        if row:
-            return {"level": row[0], "college": row[1], "name": row[2]}
-        return None

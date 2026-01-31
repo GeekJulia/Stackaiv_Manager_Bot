@@ -14,8 +14,8 @@ bot = telebot.TeleBot(TOKEN)
 # Register handlers
 start_handler(bot)
 notes_handler(bot)
-files_handler(bot)
 groups_handler(bot)
+files_handler(bot)
 
 print("Bot is running...")
 bot.infinity_polling()

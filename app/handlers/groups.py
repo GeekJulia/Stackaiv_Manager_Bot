@@ -1,234 +1,432 @@
 import re
-from telebot import types
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from ..database.queries import (
+    get_program_by_id,
+    save_group,
     get_group_program_id,
     get_courses_by_program,
-    get_course_by_code,
     get_resource_types,
     save_resource,
-    save_approval,
-    is_file_duplicate,
-    save_user,
-    save_group,
-    get_course_info,
-    get_program_info
+    check_duplicate_resource,
+    save_approval
 )
 
-# Regex: Three letters + optional space + three numbers (case-insensitive)
-COURSE_REGEX = re.compile(r'\b([A-Z]{3})\s?(\d{3})\b', re.IGNORECASE)
-
-# Temporary in-memory state
-PENDING_FILES = {}
-GROUP_SETUP_SESSIONS = {}
-
-# -------------------------
-# Extract course code from filename
-# -------------------------
-def extract_course_code(text):
-    if not text:
-        return None
-    match = COURSE_REGEX.search(text.upper())
-    if match:
-        return f"{match.group(1)} {match.group(2)}"
-    return None
+group_sessions = {}
 
 def groups_handler(bot):
-
+    
     # -------------------------
-    # BOT ADDED → WELCOME + SETUP BUTTON
+    # Bot Added to Group
     # -------------------------
     @bot.message_handler(content_types=['new_chat_members'])
-    def handle_bot_added(message):
+    def welcome_to_group(message):
+        # Check if bot was added
         for member in message.new_chat_members:
             if member.id == bot.get_me().id:
-                kb = types.InlineKeyboardMarkup()
-                kb.add(types.InlineKeyboardButton("🔧 Set Up Group", callback_data="setup:group"))
+                kb = InlineKeyboardMarkup()
+                kb.add(
+                    InlineKeyboardButton(
+                        "🔧 Setup Group",
+                        callback_data="group:setup"
+                    )
+                )
+                
                 bot.send_message(
                     message.chat.id,
                     (
-                        "👋 <b>Hello! I'm your Academic Resource Manager</b>\n\n"
-                        "📚 I automatically organize files shared in this group by:\n"
-                        "• Course code\n"
-                        "• Resource type (Notes, Slides, Past Questions, etc.)\n\n"
-                        "📎 Just send a file and I'll take care of the rest.\n\n"
-                        "⚠️ <b>Setup Required:</b> Click 'Set Up Group' to link this group to your program."
+                        "👋 *Hello everyone!*\n\n"
+                        "I'm your academic resource management bot.\n\n"
+                        "I help you:\n"
+                        "• 📁 Organize course materials\n"
+                        "• 📚 Track shared resources\n"
+                        "• ✅ Prevent duplicate uploads\n\n"
+                        "Click below to set up this group."
                     ),
-                    parse_mode="HTML",
+                    parse_mode="Markdown",
                     reply_markup=kb
                 )
-                break
-
+    
     # -------------------------
-    # INLINE BUTTON → START SETUP
+    # Setup Group Command
     # -------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "setup:group")
-    def setup_group_button(call):
-        user_id = call.from_user.id
-        chat_id = call.message.chat.id
+    @bot.message_handler(commands=['setupgroup'])
+    def setup_group_command(message):
+        if message.chat.type in ['group', 'supergroup']:
+            kb = InlineKeyboardMarkup()
+            kb.add(
+                InlineKeyboardButton(
+                    "🔧 Setup Group",
+                    callback_data="group:setup"
+                )
+            )
+            
+            bot.send_message(
+                message.chat.id,
+                "Click the button below to begin setup:",
+                reply_markup=kb
+            )
+    
+    # -------------------------
+    # Setup Group - Request Program ID
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "group:setup")
+    def request_program_id(call):
+        if call.message.chat.type not in ['group', 'supergroup']:
+            bot.answer_callback_query(
+                call.id,
+                "This feature is only for groups!",
+                show_alert=True
+            )
+            return
+        
+        group_sessions[call.message.chat.id] = {
+            "stage": "awaiting_program_id",
+            "setup_by": call.from_user.id
+        }
+        
         bot.send_message(
-            chat_id,
-            "🔗 <b>Group Setup</b>\n\nEnter your program ID to link this group:\n(Ask your bot admin for your program ID)",
-            parse_mode="HTML"
+            call.message.chat.id,
+            (
+                "🎓 *Group Setup*\n\n"
+                "Please send your *Program ID*.\n\n"
+                "💡 Get your Program ID by sending /whoami to me in private chat."
+            ),
+            parse_mode="Markdown"
         )
-        GROUP_SETUP_SESSIONS[chat_id] = {"user_id": user_id}
-
+    
     # -------------------------
-    # RECEIVE PROGRAM ID
+    # Receive Program ID
     # -------------------------
-    @bot.message_handler(func=lambda m: m.chat.id in GROUP_SETUP_SESSIONS and m.text.isdigit(), chat_types=['group', 'supergroup'])
+    @bot.message_handler(func=lambda m: m.chat.type in ['group', 'supergroup'] and 
+                         group_sessions.get(m.chat.id, {}).get("stage") == "awaiting_program_id")
     def receive_program_id(message):
-        program_id = int(message.text)
         chat_id = message.chat.id
-        save_group(chat_id, program_id)
-        GROUP_SETUP_SESSIONS.pop(chat_id)
-        program_info = get_program_info(program_id)
-        bot.send_message(
-            chat_id,
-            f"✅ <b>Group linked to program {program_info['name']} ({program_info['level']})</b>\n\n🎉 Welcome! Files can now be shared, accessed, and organized automatically.",
-            parse_mode="HTML"
-        )
-
-    # -------------------------
-    # HANDLE DOCUMENT UPLOAD
-    # -------------------------
-    @bot.message_handler(content_types=['document'], chat_types=['group', 'supergroup'])
-    def handle_group_file(message):
-        chat_id = message.chat.id
-        doc = message.document
-        program_id = get_group_program_id(chat_id)
-        if not program_id:
+        
+        try:
+            program_id = int(message.text.strip())
+        except ValueError:
             bot.send_message(
                 chat_id,
-                "⚠️ <b>Group not set up yet</b>\nClick 'Set Up Group' or run /setupgroup to link this group.",
-                reply_to_message_id=message.message_id,
-                parse_mode="HTML"
+                "❌ Invalid Program ID. Please send a valid number.",
+                parse_mode="Markdown"
             )
             return
-
-        # Save uploader info
-        save_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
-
-        # Extract course code from filename
-        course_code = extract_course_code(doc.file_name)
-        course = get_course_by_code(program_id, course_code) if course_code else None
-
-        # Store pending file
-        PENDING_FILES[message.message_id] = {
-            "file_id": doc.file_id,
-            "file_name": doc.file_name,
-            "course_code": course_code,
-            "course_id": course["id"] if course else None,
-            "uploader_id": message.from_user.id,
-            "chat_id": chat_id
-        }
-
-        if course_code and course:
-            # Ask for resource type immediately
-            ask_resource_type(bot, message.message_id)
-        else:
-            # Ask user to select course manually
-            ask_course_selection(bot, message)
-
+        
+        # Verify program exists
+        program = get_program_by_id(program_id)
+        
+        if not program:
+            bot.send_message(
+                chat_id,
+                "❌ Program ID not found. Please check and try again.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Save group with program
+        save_group(chat_id, program_id)
+        
+        bot.send_message(
+            chat_id,
+            (
+                "✅ *Group Setup Complete!*\n\n"
+                f"📚 Program: *{program['name']}*\n"
+                f"🎓 Level: *{program['level']}*\n"
+                f"🏫 College: *{program['college']}*\n\n"
+                "You can now share files and I'll track them automatically!\n\n"
+                "📎 Just upload files with course codes in the filename "
+                "(e.g., `MAT111_notes.pdf` or `CSC 234 slides.pptx`)"
+            ),
+            parse_mode="Markdown"
+        )
+        
+        # Clean up session
+        group_sessions.pop(chat_id, None)
+    
     # -------------------------
-    # ASK COURSE (IF NOT FOUND)
+    # Extract Course Code from Filename
     # -------------------------
-    def ask_course_selection(bot, message):
-        program_id = get_group_program_id(message.chat.id)
+    def extract_course_code(filename):
+        """
+        Extract course code from filename.
+        Patterns: XXX 111 or XXX111 (3 letters + 3 numbers)
+        Returns: (course_code, confidence)
+        """
+        # Pattern with space: MAT 111
+        pattern_space = r'\b([A-Z]{3})\s+(\d{3})\b'
+        # Pattern without space: MAT111
+        pattern_no_space = r'\b([A-Z]{3})(\d{3})\b'
+        
+        filename_upper = filename.upper()
+        
+        # Try with space first
+        match = re.search(pattern_space, filename_upper)
+        if match:
+            return f"{match.group(1)} {match.group(2)}", "high"
+        
+        # Try without space
+        match = re.search(pattern_no_space, filename_upper)
+        if match:
+            return f"{match.group(1)} {match.group(2)}", "medium"
+        
+        return None, "none"
+    
+    def normalize_course_code(code):
+        """Normalize course code for comparison (remove spaces)"""
+        return code.replace(" ", "").upper()
+    
+    def courses_match(code1, code2):
+        """Check if two course codes match (ignoring spacing)"""
+        return normalize_course_code(code1) == normalize_course_code(code2)
+    
+    # -------------------------
+    # Handle Document Upload in Group
+    # -------------------------
+    @bot.message_handler(content_types=['document'], func=lambda m: m.chat.type in ['group', 'supergroup'])
+    def handle_group_document(message):
+        chat_id = message.chat.id
+        
+         # DEBUG: Log everything
+        print(f"Document received in chat: {chat_id}")
+        print(f"Filename: {message.document.file_name}")
+        print(f"Chat type: {message.chat.type}")
+        
+        program_id = get_group_program_id(chat_id)
+        print(f"Program ID: {program_id}")
+        
+        if not program_id:
+            return  # Group not set up, ignore
+        
+        doc = message.document
+        filename = doc.file_name or "untitled"
+        
+        # Extract course code
+        course_code, confidence = extract_course_code(filename)
+        
+        # Get all courses for this program
         courses = get_courses_by_program(program_id)
-        markup = types.InlineKeyboardMarkup()
-        for c in courses:
-            markup.add(types.InlineKeyboardButton(c["course_code"], callback_data=f"course:{c['id']}"))
-        bot.send_message(
-            message.chat.id,
-            "❗ <b>Course code not detected or invalid.</b>\nSelect the correct course:",
-            reply_markup=markup,
-            reply_to_message_id=message.message_id,
-            parse_mode="HTML"
-        )
-
-    # -------------------------
-    # COURSE SELECT CALLBACK
-    # -------------------------
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("course:"))
-    def handle_course_select(call):
-        msg_id = call.message.reply_to_message.message_id
-        course_id = int(call.data.split(":")[1])
-        course_info = get_course_info(course_id)
-        PENDING_FILES[msg_id]["course_id"] = course_id
-        PENDING_FILES[msg_id]["course_code"] = course_info["course_code"]
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id)
-        ask_resource_type(bot, msg_id)
-
-    # -------------------------
-    # ASK RESOURCE TYPE
-    # -------------------------
-    def ask_resource_type(bot, msg_id):
-        types_list = get_resource_types()
-        markup = types.InlineKeyboardMarkup()
-        for r in types_list:
-            markup.add(types.InlineKeyboardButton(r["name"], callback_data=f"type:{msg_id}:{r['id']}"))
-        bot.send_message(
-            PENDING_FILES[msg_id]["chat_id"],
-            "📚 Select resource type:",
-            reply_markup=markup,
-            reply_to_message_id=msg_id
-        )
-
-    # -------------------------
-    # RESOURCE TYPE SELECT → CONFIRM
-    # -------------------------
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("type:"))
-    def handle_type_select(call):
-        parts = call.data.split(":")
-        msg_id = int(parts[1])
-        resource_type_id = int(parts[2])
-        PENDING_FILES[msg_id]["resource_type_id"] = resource_type_id
-        course_id = PENDING_FILES[msg_id]["course_id"]
-        file_name = PENDING_FILES[msg_id]["file_name"]
-
-        # Check duplicate now
-        if is_file_duplicate(file_name, course_id):
-            bot.edit_message_text(
-                "✅ <b>Already been added</b>",
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode="HTML"
+        
+        # Initialize session
+        group_sessions[chat_id] = {
+            "stage": "awaiting_resource_type",
+            "file_id": doc.file_id,
+            "file_name": filename,
+            "uploader_id": message.from_user.id,
+            "message_id": message.message_id
+        }
+        
+        # -------------------------
+        # Course Code Detected
+        # -------------------------
+        if course_code:
+            # Check if detected course code is registered (match with or without space)
+            matching_course = None
+            for c in courses:
+                if courses_match(course_code, c['course_code']):
+                    matching_course = c
+                    break
+            
+            if matching_course:
+                course_id = matching_course['id']
+                registered_code = matching_course['course_code']
+                
+                group_sessions[chat_id]["course_id"] = course_id
+                group_sessions[chat_id]["course_code"] = registered_code
+                
+                kb = InlineKeyboardMarkup()
+                kb.add(
+                    InlineKeyboardButton(
+                        f"✅ Yes, {registered_code}",
+                        callback_data=f"gconf:yes:{course_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "❌ No, choose manually",
+                        callback_data="gconf:no"
+                    )
+                )
+                
+                bot.send_message(
+                    chat_id,
+                    f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
+            else:
+                # Detected but not registered - show manual selection with warning
+                kb = InlineKeyboardMarkup()
+                for c in courses:
+                    kb.add(
+                        InlineKeyboardButton(
+                            c['course_code'],
+                            callback_data=f"gcourse:{c['id']}"
+                        )
+                    )
+                
+                bot.send_message(
+                    chat_id,
+                    (
+                        f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
+                        "📚 *Select from your registered courses:*"
+                    ),
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
+        
+        # -------------------------
+        # No Detection - Ask to select course
+        # -------------------------
+        else:
+            kb = InlineKeyboardMarkup()
+            for c in courses:
+                kb.add(
+                    InlineKeyboardButton(
+                        c['course_code'],
+                        callback_data=f"gcourse:{c['id']}"
+                    )
+                )
+            
+            bot.send_message(
+                chat_id,
+                "📚 *Select the course for this file:*",
+                parse_mode="Markdown",
+                reply_markup=kb
             )
-            PENDING_FILES.pop(msg_id)
+    
+    # -------------------------
+    # Confirm Detected Course - Yes
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("gconf:yes:"))
+    def confirm_course_yes(call):
+        chat_id = call.message.chat.id
+        course_id = int(call.data.split(":")[2])
+        
+        session = group_sessions.get(chat_id)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
             return
-
-        resource_name = [r['name'] for r in get_resource_types() if r['id'] == resource_type_id][0]
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(f"✅ Submit", callback_data=f"submit:{msg_id}"))
-
-        bot.edit_message_text(
-            f"⚠️ Confirm adding this file for <b>{PENDING_FILES[msg_id]['course_code']} - {resource_name}</b>?",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML",
-            reply_markup=markup
-        )
-
+        
+        # Proceed to resource type selection
+        show_resource_types(call.message.chat.id, course_id, call.message.message_id)
+    
     # -------------------------
-    # FINAL SUBMIT → SAVE & APPROVE
+    # Confirm Detected Course - No (manual selection)
     # -------------------------
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("submit:"))
-    def handle_submit(call):
-        msg_id = int(call.data.split(":")[1])
-        data = PENDING_FILES.pop(msg_id)
-        # Save resource
-        save_resource(
-            course_id=data["course_id"],
-            resource_type_id=data["resource_type_id"],
-            file_id=data["file_id"],
-            file_name=data["file_name"],
-            uploader_id=data["uploader_id"]
-        )
-        # Save approval
-        save_approval(resource_id=None, approved_by=call.from_user.id)
+    @bot.callback_query_handler(func=lambda call: call.data == "gconf:no")
+    def confirm_course_no(call):
+        chat_id = call.message.chat.id
+        program_id = get_group_program_id(chat_id)
+        
+        if not program_id:
+            return
+        
+        courses = get_courses_by_program(program_id)
+        
+        kb = InlineKeyboardMarkup()
+        for c in courses:
+            kb.add(
+                InlineKeyboardButton(
+                    c['course_code'],
+                    callback_data=f"gcourse:{c['id']}"
+                )
+            )
+        
         bot.edit_message_text(
-            f"✅ <b>Approved by @{call.from_user.username}</b>",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="📚 *Select the course for this file:*",
+            parse_mode="Markdown",
+            reply_markup=kb
         )
+    
+    # -------------------------
+    # Course Selected Manually
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("gcourse:"))
+    def select_course_manual(call):
+        chat_id = call.message.chat.id
+        course_id = int(call.data.split(":")[1])
+        
+        session = group_sessions.get(chat_id)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
+        session["course_id"] = course_id
+        
+        # Proceed to resource type selection
+        show_resource_types(chat_id, course_id, call.message.message_id)
+    
+    # -------------------------
+    # Show Resource Types
+    # -------------------------
+    def show_resource_types(chat_id, course_id, message_id):
+        resource_types = get_resource_types()
+        
+        kb = InlineKeyboardMarkup()
+        for r in resource_types:
+            kb.add(
+                InlineKeyboardButton(
+                    r['name'],
+                    callback_data=f"gtype:{r['id']}"
+                )
+            )
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text="📂 *What resource type should this be added to?*",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+    
+    # -------------------------
+    # Resource Type Selected - Check Duplicate & Save
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("gtype:"))
+    def select_resource_type(call):
+        chat_id = call.message.chat.id
+        resource_type_id = int(call.data.split(":")[1])
+        
+        session = group_sessions.get(chat_id)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
+        course_id = session["course_id"]
+        file_name = session["file_name"]
+        file_id = session["file_id"]
+        uploader_id = session["uploader_id"]
+        
+        # Check for duplicate
+        is_duplicate = check_duplicate_resource(course_id, resource_type_id, file_name)
+        
+        if is_duplicate:
+            bot.send_message(
+                chat_id,
+                "✅ *Already Added*",
+                parse_mode="Markdown"
+            )
+        else:
+            # Save resource
+            resource_id = save_resource(
+                course_id=course_id,
+                resource_type_id=resource_type_id,
+                file_id=file_id,
+                file_name=file_name,
+                uploader_id=uploader_id
+            )
+            
+            # Save approval
+            save_approval(resource_id, call.from_user.id)
+            
+            # Get approver username
+            approver_username = call.from_user.username or call.from_user.first_name
+            
+            bot.send_message(
+                chat_id,
+                f"✅ *Added and Approved by* @{approver_username}",
+                parse_mode="Markdown"
+            )
+        
+        # Clean up session
+        group_sessions.pop(chat_id, None)
