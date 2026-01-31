@@ -1,5 +1,13 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from ..database.queries import save_user, save_program, get_user_program_id
+from ..database.queries import (
+    save_user, 
+    save_program, 
+    get_user_program_id, 
+    get_program_info,
+    check_program_exists,
+    get_program_creator,
+    clear_user_program_data
+)
 
 user_sessions = {}
 
@@ -40,7 +48,163 @@ def start_handler(bot):
 
     @bot.message_handler(commands=['start'])
     def start(message):
-        user_sessions[message.from_user.id] = {}
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+        kb.add(InlineKeyboardButton("➕ Onboard a New Program", callback_data="action:new_program"))
+        
+        bot.send_message(
+            message.chat.id,
+            "👋 Welcome to Stackaiv!\n\nWhat would you like to do?",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+
+    # -------------------------
+    # Action: Go to Program Space
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "action:goto_space")
+    def goto_program_space(call):
+        bot.send_message(
+            call.message.chat.id,
+            "🔑 Please enter your Program ID:",
+            parse_mode="Markdown"
+        )
+        
+        user_sessions[call.from_user.id] = {
+            "stage": "awaiting_program_id"
+        }
+
+    # -------------------------
+    # Receive Program ID
+    # -------------------------
+    @bot.message_handler(func=lambda m: user_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_program_id")
+    def verify_program_id(message):
+        user_id = message.from_user.id
+        program_id_input = message.text.strip()
+        
+        try:
+            program_id = int(program_id_input)
+            
+            # Verify program exists in database
+            program = get_program_info(program_id)
+            
+            if program:
+                # Valid program ID - show hub
+                kb = InlineKeyboardMarkup(row_width=2)
+                kb.add(
+                    InlineKeyboardButton("📚 All Courses", callback_data="hub:courses"),
+                    InlineKeyboardButton("➕ Add Resource", callback_data="hub:add"),
+                    InlineKeyboardButton("📥 Get Resource", callback_data="hub:get"),
+                    InlineKeyboardButton("ℹ️ Help Info", callback_data="hub:help"),
+                )
+                kb.add(InlineKeyboardButton("🔄 Re-register", callback_data="hub:reregister"))
+                
+                bot.send_message(
+                    message.chat.id,
+                    (
+                        f"🎉 *Welcome back!*\n\n"
+                        f"👋 You're now in your *{program['program_name']} {program['level']}* "
+                        f"digital central resource hub.\n\n"
+                        f"What would you like to do?"
+                    ),
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
+                
+                # Clear session
+                user_sessions.pop(user_id, None)
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "❌ Invalid Program ID. Please try again or use /start to register a new program.",
+                    parse_mode="Markdown"
+                )
+                user_sessions.pop(user_id, None)
+                
+        except (ValueError, Exception) as e:
+            bot.send_message(
+                message.chat.id,
+                "❌ Invalid Program ID format. Please enter a valid number or use /start to register.",
+                parse_mode="Markdown"
+            )
+            user_sessions.pop(user_id, None)
+
+    # -------------------------
+    # Re-register Handler
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "hub:reregister")
+    def handle_reregister(call):
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("✅ Yes, Clear Everything", callback_data="reregister:confirm"))
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="reregister:cancel"))
+        
+        bot.send_message(
+            call.message.chat.id,
+            (
+                "⚠️ *Warning: Re-registration*\n\n"
+                "This will **delete all your courses and resource types**.\n"
+                "You'll need to start over from scratch.\n\n"
+                "Are you sure you want to continue?"
+            ),
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "reregister:confirm")
+    def confirm_reregister(call):
+        user_id = call.from_user.id
+        
+        try:
+            program_id = get_user_program_id(user_id)
+            clear_user_program_data(program_id)
+            
+            kb = InlineKeyboardMarkup()
+            kb.add(
+                InlineKeyboardButton(
+                    "Add courses",
+                    callback_data="cmd:addcourses"
+                )
+            )
+            
+            bot.send_message(
+                call.message.chat.id,
+                (
+                    "✅ *Data cleared successfully!*\n\n"
+                    "You can now add your courses again."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+        except Exception as e:
+            bot.send_message(
+                call.message.chat.id,
+                "❌ An error occurred. Please try again or contact support.",
+                parse_mode="Markdown"
+            )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "reregister:cancel")
+    def cancel_reregister(call):
+        bot.send_message(
+            call.message.chat.id,
+            "❌ Re-registration cancelled. Your data remains intact.",
+            parse_mode="Markdown"
+        )
+
+    # -------------------------
+    # Action: Onboard New Program
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "action:new_program")
+    def onboard_new_program(call):
+        start_new_registration(bot, call.message, is_callback=True)
+
+    # -------------------------
+    # Helper: Start New Registration
+    # -------------------------
+    def start_new_registration(bot, message, is_callback=False):
+        user_id = message.from_user.id if is_callback else message.from_user.id
+        chat_id = message.chat.id
+        
+        user_sessions[user_id] = {}
 
         kb = InlineKeyboardMarkup()
         levels = ['100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
@@ -48,7 +212,7 @@ def start_handler(bot):
             kb.add(InlineKeyboardButton(lvl, callback_data=f"level:{lvl}"))
 
         bot.send_message(
-            message.chat.id,
+            chat_id,
             "👋 Welcome to Stackaiv\n\nSelect your level:",
             reply_markup=kb,
             parse_mode="Markdown"
@@ -146,7 +310,7 @@ def start_handler(bot):
             parse_mode="Markdown"
         )
     # -------------------------
-    # Program Selected → Finish
+    # Program Selected → Check Duplicates
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("program:"))
     def handle_program(call):
@@ -161,8 +325,42 @@ def start_handler(bot):
         user_sessions[user_id]["program"] = program
         session = user_sessions.get(user.id)
 
+        # Check if program already exists
+        existing_program = check_program_exists(
+            level=session["level"],
+            college=session["college"],
+            program_name=program
+        )
+
+        if existing_program:
+            # Program exists - get creator info
+            creator = get_program_creator(existing_program['id'])
+            
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+            kb.add(InlineKeyboardButton("🔙 Back to Start", callback_data="action:back_to_start"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=(
+                    f"ℹ️ *Program Already Exists*\n\n"
+                    f"📘 Program: *{program}*\n"
+                    f"🏫 College: *{session['college']}*\n"
+                    f"📊 Level: *{session['level']}*\n\n"
+                    f"👤 Created by: @{creator['username'] or 'N/A'}\n"
+                    f"🆔 Program ID: `{existing_program['id']}`\n\n"
+                    f"Use this Program ID to access your program space."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            
+            user_sessions.pop(user_id, None)
+            return
+
         # Save Telegram user
-        user_id = save_user(
+        saved_user_id = save_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name
@@ -173,7 +371,7 @@ def start_handler(bot):
             level=session["level"],
             college=session["college"],
             program_name=program,
-            user_id=user_id
+            user_id=saved_user_id
         )
 
         kb = InlineKeyboardMarkup()
@@ -199,7 +397,23 @@ def start_handler(bot):
         user_sessions.pop(user_id, None)
 
     # -------------------------
-    # Back Navigation/UNCHECKED
+    # Back to Start Handler
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "action:back_to_start")
+    def back_to_start(call):
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+        kb.add(InlineKeyboardButton("➕ Onboard a New Program", callback_data="action:new_program"))
+        
+        bot.send_message(
+            call.message.chat.id,
+            "👋 Welcome to Stackaiv!\n\nWhat would you like to do?",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+
+    # -------------------------
+    # Back Navigation
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("back:"))
     def handle_back(call):

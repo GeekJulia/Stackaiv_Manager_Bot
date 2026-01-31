@@ -136,6 +136,95 @@ def get_course_info(course_id):
         return None
 
 # -------------------------
+# NEW FUNCTIONS FOR START.PY
+# -------------------------
+
+def check_program_exists(level, college, program_name):
+    """Check if a program already exists in the database"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, level, college, name, created_by
+            FROM programs
+            WHERE level = %s AND college = %s AND name = %s
+            LIMIT 1
+        """, (level, college, program_name))
+        r = cursor.fetchone()
+        if r:
+            return {
+                "id": r[0],
+                "level": r[1],
+                "college": r[2],
+                "program_name": r[3],
+                "user_id": r[4]
+            }
+        return None
+
+def get_program_creator(program_id):
+    """Get the user who created a specific program"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT u.id, u.telegram_id, u.username, u.first_name
+            FROM users u
+            JOIN programs p ON p.created_by = u.id
+            WHERE p.id = %s
+        """, (program_id,))
+        r = cursor.fetchone()
+        if r:
+            return {
+                "id": r[0],
+                "telegram_id": r[1],
+                "username": r[2],
+                "first_name": r[3]
+            }
+        return None
+
+def get_program_info(program_id):
+    """Get program information by program ID"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, level, college, name, created_by
+            FROM programs
+            WHERE id = %s
+        """, (program_id,))
+        r = cursor.fetchone()
+        if r:
+            return {
+                "id": r[0],
+                "level": r[1],
+                "college": r[2],
+                "program_name": r[3],
+                "user_id": r[4]
+            }
+        return None
+
+def clear_user_program_data(program_id):
+    """Clear all courses and resource types associated with a program"""
+    with conn.cursor() as cursor:
+        # 1. Delete all course_resource_types for courses in this program
+        cursor.execute("""
+            DELETE FROM course_resource_types 
+            WHERE course_id IN (
+                SELECT id FROM courses WHERE program_id = %s
+            )
+        """, (program_id,))
+        
+        # 2. Delete all resources for courses in this program
+        cursor.execute("""
+            DELETE FROM resources 
+            WHERE course_id IN (
+                SELECT id FROM courses WHERE program_id = %s
+            )
+        """, (program_id,))
+        
+        # 3. Delete all courses for this program
+        cursor.execute("""
+            DELETE FROM courses WHERE program_id = %s
+        """, (program_id,))
+        
+        conn.commit()
+        return True
+
+# -------------------------
 # GROUP MANAGEMENT FUNCTIONS
 # -------------------------
 
