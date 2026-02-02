@@ -272,6 +272,7 @@ def activation_handler(bot):
                     message_text = (
                         "✅ *Payment Verified!*\n\n"
                         "🎉 Your program space is now activated!\n\n"
+                        f"🆔 *Program ID:* `{program_id}`\n\n"
                         f"📚 *Registered Courses:*\n{courses_list}\n\n"
                         "You can now proceed to add resources or access the resource hub."
                     )
@@ -279,6 +280,7 @@ def activation_handler(bot):
                     message_text = (
                         "✅ *Payment Verified!*\n\n"
                         "🎉 Your program space is now activated!\n\n"
+                        f"🆔 *Program ID:* `{program_id}`\n\n"
                         "📚 *No courses added yet.*\n\n"
                         "You can now proceed to add courses and start sharing/accessing resources."
                     )

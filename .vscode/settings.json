@@ -5,13 +5,11 @@
             "previewLimit": 50,
             "server": "localhost",
             "port": 5432,
-            "sshOptions": {
-                "port": 22
-            },
             "driver": "PostgreSQL",
-            "database": "postgres",
+            "database": "Stackaiv DB",
             "username": "Julia Esele",
-            "name": "Campus Mart"
+            "name": "Campus Mart",
+            "connectionTimeout": 10
         }
     ]
 }

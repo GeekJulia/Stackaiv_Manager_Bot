@@ -3,8 +3,8 @@
 -- ========================================
 -- 1. Add is_active column to programs table
 -- ========================================
-ALTER TABLE programs
-ADD COLUMN is_active BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE programs
+-- ADD COLUMN is_active BOOLEAN DEFAULT FALSE;
 -- ========================================
 -- 2. Create payments table
 -- ========================================
@@ -37,17 +37,41 @@ CREATE TABLE IF NOT EXISTS program_activations (
 CREATE INDEX IF NOT EXISTS idx_program_activations_program_id ON program_activations(program_id);
 CREATE INDEX IF NOT EXISTS idx_program_activations_is_paid ON program_activations(is_paid);
 -- ========================================
+-- 3b. Create admin_messages table
+-- ========================================
+CREATE TABLE IF NOT EXISTS admin_messages (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    telegram_id BIGINT NOT NULL,
+    username TEXT,
+    first_name TEXT,
+    message_text TEXT NOT NULL,
+    message_type TEXT DEFAULT 'general',
+    handled BOOLEAN DEFAULT FALSE,
+    handled_by TEXT,
+    handled_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+-- Create indexes for admin message queries
+CREATE INDEX IF NOT EXISTS idx_admin_messages_telegram_id ON admin_messages(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_admin_messages_handled ON admin_messages(handled);
+CREATE INDEX IF NOT EXISTS idx_admin_messages_created_at ON admin_messages(created_at DESC);
+COMMENT ON TABLE admin_messages IS 'Stores messages sent by users to admin for record-keeping and response tracking';
+COMMENT ON COLUMN admin_messages.message_type IS 'Type of message: general, complaint, question, suggestion, bug_report';
+COMMENT ON COLUMN admin_messages.handled IS 'Whether admin has responded to this message';
+COMMENT ON COLUMN admin_messages.handled_by IS 'Admin username who handled this message';
+-- ========================================
 -- 4. Verify existing tables
 -- ========================================
 -- Ensure all required tables exist
 -- Users table (should already exist)
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,
-    username TEXT,
-    first_name TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+-- CREATE TABLE IF NOT EXISTS users (
+--     id SERIAL PRIMARY KEY,
+--     telegram_id BIGINT UNIQUE NOT NULL,
+--     username TEXT,
+--     first_name TEXT,
+--     created_at TIMESTAMP DEFAULT NOW()
+-- );
 -- Programs table (should already exist but we added is_active)
 -- Already updated above
 -- ========================================

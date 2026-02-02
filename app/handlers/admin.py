@@ -6,7 +6,9 @@ from ..database.queries import (
     get_all_programs,
     delete_program,
     get_all_users,
-    get_user_program_id
+    get_user_program_id,
+    get_all_admin_messages,
+    get_admin_messages_count
 )
 
 admin_sessions = {}
@@ -36,7 +38,7 @@ def admin_handler(bot):
         
         kb = InlineKeyboardMarkup(row_width=2)
         kb.add(
-            InlineKeyboardButton("📊 List Transactions", callback_data="admin:list_transactions"),
+            InlineKeyboardButton("📊 Transactions", callback_data="admin:list_transactions"),
             InlineKeyboardButton("🔍 Fetch Transaction", callback_data="admin:fetch_transaction")
         )
         kb.add(
@@ -44,11 +46,12 @@ def admin_handler(bot):
             InlineKeyboardButton("🗑️ Delete Program", callback_data="admin:delete_program")
         )
         kb.add(
-            InlineKeyboardButton("📢 Broadcast Message", callback_data="admin:broadcast"),
-            InlineKeyboardButton("🛑 Stop Bot", callback_data="admin:stop_bot")
+            InlineKeyboardButton("💬 User Messages", callback_data="admin:list_messages"),
+            InlineKeyboardButton("📢 Broadcast", callback_data="admin:broadcast")
         )
         kb.add(
-            InlineKeyboardButton("👥 List Users", callback_data="admin:list_users")
+            InlineKeyboardButton("👥 List Users", callback_data="admin:list_users"),
+            InlineKeyboardButton("🛑 Stop Bot", callback_data="admin:stop_bot")
         )
         
         bot.send_message(
@@ -79,21 +82,39 @@ def admin_handler(bot):
                 )
                 return
             
-            # Format as table-like text
-            text = "📊 *All Transactions*\n\n"
-            text += "`ID    | Status   | Amount | Program ID`\n"
-            text += "`" + "─" * 48 + "`\n"
+            # Send in chunks to avoid message too long error
+            text = "📊 *Recent Transactions*\n\n"
             
-            for t in transactions[-50:]:  # Show last 50 transactions
-                status = "✅ Success" if t['status'] == 'success' else f"⏳ {t['status']}"
-                amount = f"₦{t['amount'] // 100}"
-                text += f"`{t['id']:<4} | {status:<8} | {amount:>8} | {t['program_id']}`\n"
+            for t in transactions[-100:]:  # Show last 100 transactions
+                status = "✅ Success" if t['status'] == 'success' else "⏳ Pending"
+                # Format amount properly (amount is in kobo, divide by 100 to get naira)
+                amount_naira = int(t['amount'] / 100) if isinstance(t['amount'], (int, float)) else 0
+                date = str(t.get('created_at', 'N/A'))[:10]  # Just the date portion
+                
+                entry = (
+                    f"*ID:* {t['id']} | *Status:* {status}\n"
+                    f"*Amount:* ₦{amount_naira:,} | *Program:* {t['program_id']}\n"
+                    f"*Date:* {date}\n"
+                    f"──────────────────\n"
+                )
+                
+                # Send in chunks to avoid 4096 char limit
+                if len(text) + len(entry) > 3500:
+                    bot.send_message(
+                        call.message.chat.id,
+                        text,
+                        parse_mode="Markdown"
+                    )
+                    text = ""
+                
+                text += entry
             
-            bot.send_message(
-                call.message.chat.id,
-                text,
-                parse_mode="Markdown"
-            )
+            if text:
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    parse_mode="Markdown"
+                )
         
         except Exception as e:
             bot.send_message(
@@ -126,11 +147,13 @@ def admin_handler(bot):
             transaction = get_transaction_by_id(transaction_id)
             
             if transaction:
+                # Format amount properly (amount is in kobo)
+                amount_naira = int(transaction['amount'] / 100) if isinstance(transaction['amount'], (int, float)) else 0
                 text = (
                     f"💳 *Transaction Details*\n\n"
                     f"ID: `{transaction['id']}`\n"
                     f"Reference: `{transaction['reference']}`\n"
-                    f"Amount: ₦{transaction['amount'] // 100}\n"
+                    f"Amount: ₦{amount_naira:,}\n"
                     f"Status: {transaction['status'].upper()}\n"
                     f"Program: {transaction['program_name']}\n"
                     f"User: {transaction['user_name']}\n"
@@ -355,6 +378,72 @@ def admin_handler(bot):
                         parse_mode="Markdown"
                     )
                     text = ""
+            
+            if text:
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    parse_mode="Markdown"
+                )
+        
+        except Exception as e:
+            bot.send_message(
+                call.message.chat.id,
+                f"❌ Error: {str(e)}",
+                parse_mode="Markdown"
+            )
+
+    # -------------------------
+    # LIST ALL ADMIN MESSAGES
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "admin:list_messages")
+    def list_admin_messages(call):
+        try:
+            messages = get_all_admin_messages(limit=200)
+            
+            if not messages:
+                bot.send_message(
+                    call.message.chat.id,
+                    "💬 *User Messages*\n\n"
+                    "No messages found.",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            # Count unhandled messages
+            unhandled_count = sum(1 for m in messages if not m['handled'])
+            
+            text = f"💬 *User Messages*\n\n"
+            text += f"Total Messages: {len(messages)}\n"
+            text += f"⚠️ Unhandled: {unhandled_count}\n\n"
+            
+            for msg in messages:
+                status = "🔴 NEW" if not msg['handled'] else "✅ Handled"
+                user_info = f"@{msg['username']}" if msg['username'] else f"ID: {msg['telegram_id']}"
+                date = str(msg.get('created_at', 'N/A'))[:10]
+                
+                # Truncate message if too long
+                message_preview = msg['message_text'][:100]
+                if len(msg['message_text']) > 100:
+                    message_preview += "..."
+                
+                entry = (
+                    f"{status} | {user_info}\n"
+                    f"📝 {message_preview}\n"
+                    f"🕐 {date}\n"
+                    f"──────────────────\n"
+                )
+                
+                # Send in chunks to avoid 4096 char limit
+                if len(text) + len(entry) > 3500:
+                    bot.send_message(
+                        call.message.chat.id,
+                        text,
+                        parse_mode="Markdown"
+                    )
+                    text = ""
+                
+                text += entry
             
             if text:
                 bot.send_message(

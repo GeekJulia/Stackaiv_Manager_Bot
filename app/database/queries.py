@@ -598,3 +598,92 @@ def save_resource_with_type_check(course_id, resource_type_id, file_id, file_nam
         conn.commit()
         result = cursor.fetchone()
         return result[0] if result else None
+
+# -------------------------
+# Admin Messages Management
+# -------------------------
+def save_admin_message(telegram_id, username, first_name, message_text, message_type='general'):
+    """Save a message sent to admin by a user"""
+    with conn.cursor() as cursor:
+        # Get or create user
+        cursor.execute("""
+            SELECT id FROM users WHERE telegram_id = %s
+        """, (telegram_id,))
+        user_row = cursor.fetchone()
+        user_id = user_row[0] if user_row else None
+        
+        # Save admin message
+        cursor.execute("""
+            INSERT INTO admin_messages (user_id, telegram_id, username, first_name, message_text, message_type)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (user_id, telegram_id, username, first_name, message_text, message_type))
+        conn.commit()
+        return cursor.fetchone()[0]
+
+def get_all_admin_messages(limit=100):
+    """Get all messages sent to admin, newest first"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, telegram_id, username, first_name, message_text, message_type, 
+                   handled, handled_by, created_at
+            FROM admin_messages
+            ORDER BY created_at DESC
+            LIMIT %s
+        """, (limit,))
+        
+        results = cursor.fetchall()
+        messages = []
+        for row in results:
+            messages.append({
+                'id': row[0],
+                'telegram_id': row[1],
+                'username': row[2],
+                'first_name': row[3],
+                'message_text': row[4],
+                'message_type': row[5],
+                'handled': row[6],
+                'handled_by': row[7],
+                'created_at': row[8]
+            })
+        return messages
+
+def get_unhandled_admin_messages():
+    """Get messages that haven't been responded to yet"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, telegram_id, username, first_name, message_text, message_type, created_at
+            FROM admin_messages
+            WHERE handled = FALSE
+            ORDER BY created_at ASC
+        """)
+        
+        results = cursor.fetchall()
+        messages = []
+        for row in results:
+            messages.append({
+                'id': row[0],
+                'telegram_id': row[1],
+                'username': row[2],
+                'first_name': row[3],
+                'message_text': row[4],
+                'message_type': row[5],
+                'created_at': row[6]
+            })
+        return messages
+
+def mark_message_handled(message_id, handled_by_username):
+    """Mark an admin message as handled"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            UPDATE admin_messages
+            SET handled = TRUE, handled_by = %s, handled_at = NOW()
+            WHERE id = %s
+        """, (handled_by_username, message_id))
+        conn.commit()
+
+def get_admin_messages_count():
+    """Get count of unhandled admin messages"""
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM admin_messages WHERE handled = FALSE")
+        return cursor.fetchone()[0]

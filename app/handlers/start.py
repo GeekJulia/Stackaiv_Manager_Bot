@@ -161,8 +161,14 @@ def start_handler(bot):
             kb = InlineKeyboardMarkup()
             kb.add(
                 InlineKeyboardButton(
-                    "Add courses",
-                    callback_data="cmd:addcourses"
+                    "➕ Add Courses",
+                    callback_data="notes:courses_list"
+                )
+            )
+            kb.add(
+                InlineKeyboardButton(
+                    "🏠 Back to Space",
+                    callback_data="action:goto_space"
                 )
             )
             
@@ -170,6 +176,7 @@ def start_handler(bot):
                 call.message.chat.id,
                 (
                     "✅ *Data cleared successfully!*\n\n"
+                    "All courses and resource types have been removed.\n"
                     "You can now add your courses again."
                 ),
                 parse_mode="Markdown",
