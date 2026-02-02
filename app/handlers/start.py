@@ -377,8 +377,8 @@ def start_handler(bot):
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
-                "Add courses",
-                callback_data="cmd:addcourses"
+                "💳 Activate Program & Continue",
+                callback_data="action:activate_program"
             )
         )
 
@@ -388,7 +388,8 @@ def start_handler(bot):
             text=(
                 "🎉 *Registration Complete!*\n\n"
                 f"📘 Program: *{program}*\n\n"
-                "Set up your academic space."
+                "Your program space has been created.\n\n"
+                "Next, activate your program to enable resource sharing."
             ),
             parse_mode="Markdown",
             reply_markup=kb

@@ -292,3 +292,229 @@ def save_approval(resource_id, approved_by_telegram_id):
             VALUES (%s, %s)
         """, (resource_id, approved_by_telegram_id))
         conn.commit()
+
+# -------------------------
+# PAYMENT & ACTIVATION FUNCTIONS
+# -------------------------
+
+def save_payment(program_id, reference, amount, status):
+    """Save payment transaction record"""
+    try:
+        with conn.cursor() as cursor:
+            query = """
+            INSERT INTO payments (program_id, reference, amount, status)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (reference) DO UPDATE
+            SET status = EXCLUDED.status
+            RETURNING id;
+            """
+            cursor.execute(query, (program_id, reference, amount, status))
+            conn.commit()
+            result = cursor.fetchone()[0]
+            print(f"DEBUG: Payment saved - reference={reference}, program_id={program_id}, amount={amount}, status={status}")
+            return result
+    except Exception as e:
+        print(f"ERROR: save_payment failed - {str(e)}")
+        raise
+
+def get_payment_by_reference(reference):
+    """Get payment record by Paystack reference"""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, program_id, reference, amount, status
+                FROM payments
+                WHERE reference = %s
+            """, (reference,))
+            r = cursor.fetchone()
+            if r:
+                result = {
+                    "id": r[0],
+                    "program_id": r[1],
+                    "reference": r[2],
+                    "amount": r[3],
+                    "status": r[4]
+                }
+                print(f"DEBUG: Payment found - {result}")
+                return result
+            else:
+                print(f"DEBUG: Payment not found for reference={reference}")
+                return None
+    except Exception as e:
+        print(f"ERROR: get_payment_by_reference failed - {str(e)}")
+        raise
+        return None
+
+def activate_program(program_id):
+    """Mark program as active and create activation record"""
+    with conn.cursor() as cursor:
+        # Update program is_active status
+        cursor.execute("""
+            UPDATE programs
+            SET is_active = TRUE
+            WHERE id = %s
+        """, (program_id,))
+        
+        # Create activation record
+        cursor.execute("""
+            INSERT INTO program_activations (program_id, is_paid)
+            VALUES (%s, TRUE)
+        """, (program_id,))
+        
+        conn.commit()
+        return True
+
+def get_program_activation_status(program_id):
+    """Check if a program is active"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT is_active
+            FROM programs
+            WHERE id = %s
+        """, (program_id,))
+        r = cursor.fetchone()
+        return r[0] if r else False
+
+def get_all_programs():
+    """Get all registered programs"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT p.id, p.level, p.college, p.name, p.created_by, p.is_active, u.first_name, u.username
+            FROM programs p
+            JOIN users u ON p.created_by = u.id
+            ORDER BY p.created_at DESC
+        """)
+        return [
+            {
+                "id": r[0],
+                "level": r[1],
+                "college": r[2],
+                "name": r[3],
+                "created_by": r[4],
+                "is_active": r[5],
+                "creator_name": r[6],
+                "creator_username": r[7]
+            }
+            for r in cursor.fetchall()
+        ]
+
+def delete_program(program_id):
+    """Delete a program and all related data"""
+    with conn.cursor() as cursor:
+        # Delete approvals
+        cursor.execute("""
+            DELETE FROM approvals 
+            WHERE resource_id IN (
+                SELECT id FROM resources WHERE course_id IN (
+                    SELECT id FROM courses WHERE program_id = %s
+                )
+            )
+        """, (program_id,))
+        
+        # Delete resources
+        cursor.execute("""
+            DELETE FROM resources 
+            WHERE course_id IN (
+                SELECT id FROM courses WHERE program_id = %s
+            )
+        """, (program_id,))
+        
+        # Delete course_resource_types
+        cursor.execute("""
+            DELETE FROM course_resource_types 
+            WHERE course_id IN (
+                SELECT id FROM courses WHERE program_id = %s
+            )
+        """, (program_id,))
+        
+        # Delete courses
+        cursor.execute("""
+            DELETE FROM courses WHERE program_id = %s
+        """, (program_id,))
+        
+        # Delete groups
+        cursor.execute("""
+            DELETE FROM groups WHERE program_id = %s
+        """, (program_id,))
+        
+        # Delete payments
+        cursor.execute("""
+            DELETE FROM payments WHERE program_id = %s
+        """, (program_id,))
+        
+        # Delete activations
+        cursor.execute("""
+            DELETE FROM program_activations WHERE program_id = %s
+        """, (program_id,))
+        
+        # Delete program
+        cursor.execute("""
+            DELETE FROM programs WHERE id = %s
+        """, (program_id,))
+        
+        conn.commit()
+        return True
+
+def get_all_transactions():
+    """Get all payment transactions"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT p.id, p.program_id, p.reference, p.amount, p.status, p.created_at, prog.name
+            FROM payments p
+            JOIN programs prog ON p.program_id = prog.id
+            ORDER BY p.created_at DESC
+        """)
+        return [
+            {
+                "id": r[0],
+                "program_id": r[1],
+                "reference": r[2],
+                "amount": r[3],
+                "status": r[4],
+                "created_at": r[5],
+                "program_name": r[6]
+            }
+            for r in cursor.fetchall()
+        ]
+
+def get_transaction_by_id(transaction_id):
+    """Get a specific transaction by ID"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT p.id, p.program_id, p.reference, p.amount, p.status, p.created_at, prog.name, u.first_name
+            FROM payments p
+            JOIN programs prog ON p.program_id = prog.id
+            JOIN users u ON prog.created_by = u.id
+            WHERE p.id = %s
+        """, (transaction_id,))
+        r = cursor.fetchone()
+        if r:
+            return {
+                "id": r[0],
+                "program_id": r[1],
+                "reference": r[2],
+                "amount": r[3],
+                "status": r[4],
+                "created_at": r[5],
+                "program_name": r[6],
+                "user_name": r[7]
+            }
+        return None
+
+def get_all_users():
+    """Get all telegram users"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, telegram_id, username, first_name
+            FROM users
+            ORDER BY created_at DESC
+        """)
+        return [
+            {
+                "id": r[0],
+                "telegram_id": r[1],
+                "username": r[2],
+                "first_name": r[3]
+            }
+            for r in cursor.fetchall()
+        ]
