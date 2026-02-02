@@ -2,7 +2,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from ..database.queries import (
     get_user_program_id,
     get_program_info,
-    get_program_activation_status
+    get_program_activation_status,
+    get_courses_by_program
 )
 from ..services.payments import initialize_transaction, generate_payment_reference
 
@@ -20,6 +21,7 @@ def activation_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "action:activate_program")
     def show_activation_screen(call):
         user_id = call.from_user.id
+        message_id = call.message.message_id
         
         try:
             program_id = get_user_program_id(user_id)
@@ -28,33 +30,75 @@ def activation_handler(bot):
             # Check if already active
             is_active = get_program_activation_status(program_id)
             if is_active:
-                bot.send_message(
-                    call.message.chat.id,
-                    "✅ *Your program is already activated!*\n\n"
-                    "You can now proceed to add courses.",
-                    parse_mode="Markdown"
-                )
+                # Get existing courses
+                courses = get_courses_by_program(program_id)
+                
+                if courses:
+                    courses_list = "\n".join([f"• {c['course_code']}" for c in courses])
+                    message_text = (
+                        "✅ *Your program space is activated!*\n\n"
+                        f"📚 *Registered Courses:*\n{courses_list}\n\n"
+                        "You can now proceed to add resources or access the resource hub."
+                    )
+                else:
+                    message_text = (
+                        "✅ *Your program space is activated!*\n\n"
+                        "📚 *No courses added yet.*\n\n"
+                        "You can proceed to add courses and start sharing/accessing resources."
+                    )
+                
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton("📚 Resource Hub", callback_data="action:goto_space"))
+                kb.add(InlineKeyboardButton("⬅️ Back", callback_data="action:activate_program"))
+                
+                try:
+                    bot.edit_message_text(
+                        message_text,
+                        call.message.chat.id,
+                        message_id,
+                        parse_mode="Markdown",
+                        reply_markup=kb
+                    )
+                except:
+                    bot.send_message(
+                        call.message.chat.id,
+                        message_text,
+                        parse_mode="Markdown",
+                        reply_markup=kb
+                    )
                 return
             
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton("💳 Proceed with Payment", callback_data="activate:pay"))
             kb.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="activate:cancel"))
             
-            bot.send_message(
-                call.message.chat.id,
-                (
-                    "🎓 *Activate Your Program Space*\n\n"
-                    f"📘 Program: *{program_info['program_name']}*\n"
-                    f"📊 Level: *{program_info['level']}*\n"
-                    f"🏫 College: *{program_info['college']}*\n\n"
-                    "💰 *Activation Fee:* ₦3,000.00\n\n"
-                    "This fee activates your resource sharing space, allowing you and your classmates "
-                    "to upload and access course materials.\n\n"
-                    "Would you like to proceed with the payment?"
-                ),
-                parse_mode="Markdown",
-                reply_markup=kb
+            message_text = (
+                "🎓 *Activate Your Program Space*\n\n"
+                f"📘 Program: *{program_info['program_name']}*\n"
+                f"📊 Level: *{program_info['level']}*\n"
+                f"🏫 College: *{program_info['college']}*\n\n"
+                "💰 *Activation Fee:* ₦3,000.00\n\n"
+                "This fee activates your resource sharing space, allowing you and your classmates "
+                "to upload and access course materials.\n\n"
+                "Would you like to proceed with the payment?"
             )
+            
+            try:
+                bot.edit_message_text(
+                    message_text,
+                    call.message.chat.id,
+                    message_id,
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
+            except:
+                bot.send_message(
+                    call.message.chat.id,
+                    message_text,
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
             
         except Exception as e:
             bot.send_message(
@@ -203,8 +247,16 @@ def activation_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "activate:check_status")
     def check_payment_status(call):
         user_id = call.from_user.id
+        message_id = call.message.message_id
         
         try:
+            # Show processing message
+            loading_msg = bot.send_message(
+                call.message.chat.id,
+                "⏳ *Verifying payment...*",
+                parse_mode="Markdown"
+            )
+            
             program_id = get_user_program_id(user_id)
             is_active = get_program_activation_status(program_id)
             
@@ -212,23 +264,64 @@ def activation_handler(bot):
                 # Program is activated!
                 activation_sessions.pop(user_id, None)
                 
-                bot.send_message(
-                    call.message.chat.id,
-                    "✅ *Payment Verified!*\n\n"
-                    "🎉 Your program is now activated!\n\n"
-                    "You can now proceed to your program space add courses and start sharing/accessing resources with your program community.",
-                    parse_mode="Markdown"
-                )
+                # Get existing courses
+                courses = get_courses_by_program(program_id)
+                
+                if courses:
+                    courses_list = "\n".join([f"• {c['course_code']}" for c in courses])
+                    message_text = (
+                        "✅ *Payment Verified!*\n\n"
+                        "🎉 Your program space is now activated!\n\n"
+                        f"📚 *Registered Courses:*\n{courses_list}\n\n"
+                        "You can now proceed to add resources or access the resource hub."
+                    )
+                else:
+                    message_text = (
+                        "✅ *Payment Verified!*\n\n"
+                        "🎉 Your program space is now activated!\n\n"
+                        "📚 *No courses added yet.*\n\n"
+                        "You can now proceed to add courses and start sharing/accessing resources."
+                    )
+                
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton("📚 Resource Hub", callback_data="action:goto_space"))
+                
+                # Delete loading message
+                try:
+                    bot.delete_message(call.message.chat.id, loading_msg.message_id)
+                except:
+                    pass
+                
+                try:
+                    bot.edit_message_text(
+                        message_text,
+                        call.message.chat.id,
+                        message_id,
+                        parse_mode="Markdown",
+                        reply_markup=kb
+                    )
+                except:
+                    bot.send_message(
+                        call.message.chat.id,
+                        message_text,
+                        parse_mode="Markdown",
+                        reply_markup=kb
+                    )
             else:
                 # Payment still processing
-                bot.send_message(
-                    call.message.chat.id,
-                    "⏳ *Payment Still Processing*\n\n"
-                    "Your payment is being verified by Paystack. "
-                    "This usually takes a few seconds to a few minutes.\n\n"
-                    "Please wait a moment and try again.",
-                    parse_mode="Markdown"
-                )
+                try:
+                    bot.edit_message_text(
+                        "⏳ *Payment Still Processing*\n\n"
+                        "Your payment is being verified by Paystack. "
+                        "This usually takes a few seconds to a few minutes.\n\n"
+                        "Please wait a moment and try again.",
+                        call.message.chat.id,
+                        loading_msg.message_id,
+                        parse_mode="Markdown"
+                    )
+                except:
+                    pass
         
         except Exception as e:
             bot.send_message(

@@ -518,3 +518,83 @@ def get_all_users():
             }
             for r in cursor.fetchall()
         ]
+
+# -------------------------
+# RESOURCE TYPE SPECIFIC DUPLICATE CHECKING
+# -------------------------
+# Resource types with duplicate checking:
+# 1. Notes (check duplicates) - documents: pdf, docx, ppt
+# 2. PQ Images (NO duplicate check) - files: gif, jpeg, jpg, png
+# 3. PQ Files (NO duplicate check) - documents: pdf, docx
+# 4. Textbooks (check duplicates) - documents: pdf, docx
+# 5. Extra Study Files (NO duplicate check) - documents: docx, pdf
+# 6. Code (NO duplicate check) - documents: py, cpp, zip, java, js
+# 7. Drawings (NO duplicate check) - files: io, pdf, png
+# 8. Video Files (check duplicates) - documents: mp4, avi, mkv, mov
+
+DUPLICATE_CHECK_RESOURCES = {
+    "notes": True,  # Resource Type ID 1
+    "textbooks": True,  # Resource Type ID 4
+    "video": True  # Resource Type ID 8 (if exists)
+}
+
+def get_resource_type_by_name(resource_type_name):
+    """Get resource type ID by name"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT id FROM resource_types
+            WHERE LOWER(name) = LOWER(%s)
+        """, (resource_type_name,))
+        r = cursor.fetchone()
+        return r[0] if r else None
+
+def should_check_duplicate(resource_type_id):
+    """Determine if a resource type requires duplicate checking"""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT name FROM resource_types WHERE id = %s
+        """, (resource_type_id,))
+        r = cursor.fetchone()
+        if r:
+            type_name = r[0].lower()
+            # Check if this resource type requires duplicate checking
+            return type_name in ['notes', 'textbooks', 'video files', 'videos']
+        return False
+
+def check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
+    """Check for duplicate resources based on resource type"""
+    should_check = should_check_duplicate(resource_type_id)
+    
+    if not should_check:
+        # No duplicate check needed for this resource type
+        return False
+    
+    # Perform duplicate check
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM resources
+            WHERE course_id = %s 
+            AND resource_type_id = %s 
+            AND LOWER(file_name) = LOWER(%s)
+        """, (course_id, resource_type_id, file_name))
+        count = cursor.fetchone()[0]
+        return count > 0
+
+def save_resource_with_type_check(course_id, resource_type_id, file_id, file_name, uploader_id):
+    """Save resource with proper duplicate checking based on type"""
+    # Check if duplicate checking is needed for this resource type
+    if check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
+        return None  # Duplicate found
+    
+    # Save resource
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO resources (course_id, resource_type_id, file_id, file_name, uploader_id)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (file_id) DO NOTHING
+            RETURNING id
+        """, (course_id, resource_type_id, file_id, file_name, uploader_id))
+        conn.commit()
+        result = cursor.fetchone()
+        return result[0] if result else None

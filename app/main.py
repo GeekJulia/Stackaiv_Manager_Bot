@@ -11,7 +11,16 @@ from .handlers.admin import admin_handler
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 
-bot = telebot.TeleBot(TOKEN)
+# Initialize bot with timeout and request kwargs
+bot = telebot.TeleBot(
+    TOKEN,
+    parse_mode="Markdown",
+    skip_pending=True  # Skip pending updates on startup
+)
+
+# Request timeout configuration
+telebot.apihelper.SESSION_TIMEOUT = 30
+telebot.apihelper.API_REQUEST_TIMEOUT = 30
 
 # Register handlers
 start_handler(bot)
@@ -22,4 +31,5 @@ files_handler(bot)
 admin_handler(bot)
 
 print("Bot is running...")
-bot.infinity_polling()
+# Use infinity_polling with allowed_updates and request_kwargs to handle timeouts
+bot.infinity_polling(timeout=30, long_polling_timeout=30)
