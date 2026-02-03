@@ -3,28 +3,39 @@ import logging
 import hmac
 import hashlib
 import telebot
-from .main import bot  
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-from .services.payments import handle_payment_webhook
-from .database.queries import get_user_program_id
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# ✅ CONFIGURE LOGGING AT MODULE LEVEL (not inside if __name__)
+# Configure logging FIRST
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True  # Override any existing config
+    force=True
 )
 logger = logging.getLogger(__name__)
 
-# Also configure gunicorn's logger
+# Connect to gunicorn logger
 gunicorn_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_logger.handlers
 app.logger.setLevel(logging.INFO)
+
+# ✅ ADD ERROR HANDLING FOR BOT IMPORT
+try:
+    logger.info("Attempting to import bot from main...")
+    from .main import bot
+    logger.info(f"✅ Bot imported successfully. Handlers registered: {len(bot.message_handlers)}")
+    logger.info(f"Message handler count: {len(bot.message_handlers)}")
+    logger.info(f"Callback handler count: {len(bot.callback_query_handlers)}")
+except Exception as e:
+    logger.error(f"❌ CRITICAL: Failed to import bot from main: {e}", exc_info=True)
+    bot = None  # Set to None so we can check later
+
+from .services.payments import handle_payment_webhook
+from .database.queries import get_user_program_id
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
@@ -136,15 +147,29 @@ def health_check():
 def telegram_webhook():
     try:
         logger.info("=== TELEGRAM WEBHOOK HIT ===")
-        logger.info(f"Headers: {dict(request.headers)}")
+        
+        # ✅ CHECK IF BOT IS AVAILABLE
+        if bot is None:
+            logger.error("❌ Bot is None - import failed!")
+            return jsonify({"status": "error", "message": "Bot not initialized"}), 500
+        
         logger.info(f"Body: {request.get_json()}")
         
         update = telebot.types.Update.de_json(request.json)
         logger.info(f"Parsed update ID: {update.update_id}")
         
-        bot.process_new_updates([update])
+        # ✅ LOG HANDLER COUNTS
+        logger.info(f"Active message handlers: {len(bot.message_handlers)}")
+        logger.info(f"Active callback handlers: {len(bot.callback_query_handlers)}")
         
-        logger.info("Update processed successfully")
+        # ✅ TRY TO PROCESS UPDATE WITH ERROR CATCHING
+        try:
+            bot.process_new_updates([update])
+            logger.info("✅ Update processed successfully")
+        except Exception as process_error:
+            logger.error(f"❌ Error processing update: {process_error}", exc_info=True)
+            raise
+        
         return jsonify({"status": "ok"}), 200
         
     except Exception as e:
