@@ -12,7 +12,19 @@ from .database.queries import get_user_program_id
 load_dotenv()
 
 app = Flask(__name__)
+
+# ✅ CONFIGURE LOGGING AT MODULE LEVEL (not inside if __name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # Override any existing config
+)
 logger = logging.getLogger(__name__)
+
+# Also configure gunicorn's logger
+gunicorn_logger = logging.getLogger('gunicorn.error')
+app.logger.handlers = gunicorn_logger.handlers
+app.logger.setLevel(logging.INFO)
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
@@ -151,13 +163,7 @@ def internal_error(error):
     return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Run Flask app
+    # This only runs during local development with `python -m app.webhook`
     port = int(os.getenv("WEBHOOK_PORT", 5000))
     host = os.getenv("WEBHOOK_HOST", "0.0.0.0")
     
