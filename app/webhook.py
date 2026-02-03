@@ -3,7 +3,7 @@ import logging
 import hmac
 import hashlib
 import telebot
-from app.main import bot  
+from .main import bot  
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from .services.payments import handle_payment_webhook
@@ -122,8 +122,7 @@ def health_check():
 
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
-    json_data = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_data)
+    update = telebot.types.Update.de_json(request.json)
     bot.process_new_updates([update])
     return jsonify({"status": "ok"}), 200
 
