@@ -73,6 +73,11 @@ Ngrok = ngrok http 5000
 python -m app.webhook
 ```
 
+## Once deployed on Render, run locally: 
+````curl -X POST "https://api.telegram.org/bot8574033484:AAHjU43wXxLZukmIU0Kp3ghBIqq_baM5xus/setWebhook" \
+     -d "url=https://stackaiv-manager-bot.onrender.com/telegram/webhook"
+````
+
 ## 📖 Documentation
 
 ### Getting Started
