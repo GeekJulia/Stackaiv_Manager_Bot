@@ -14,8 +14,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 # Initialize bot with timeout and request kwargs
 bot = telebot.TeleBot(
     TOKEN,
-    parse_mode="Markdown",
-    skip_pending=True  # Skip pending updates on startup
+    parse_mode="Markdown"
 )
 
 # Request timeout configuration

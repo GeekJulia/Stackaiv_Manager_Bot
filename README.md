@@ -75,8 +75,11 @@ python -m app.webhook
 https://api.telegram.org/bot8574033484:AAHjU43wXxLZukmIU0Kp3ghBIqq_baM5xus/setWebhook?url=https://stackaiv-manager-bot.onrender.com/telegram/webhook
 https://api.telegram.org/bot8574033484:AAHjU43wXxLZukmIU0Kp3ghBIqq_baM5xus/deleteWebhook
 ## Once deployed on Render, run locally: 
-````curl -X POST "https://api.telegram.org/bot8574033484:AAHjU43wXxLZukmIU0Kp3ghBIqq_baM5xus/setWebhook" \
-     -d "url=https://stackaiv-manager-bot.onrender.com/telegram/webhook"
+````curl -X POST "https://api.telegram.org/bot8574033484:AAHvlGEEnTkh_B4hy7PtZJLPraSp1m__h0c/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://stackaiv-manager-bot.onrender.com/telegram/webhook"}'
+
+     curl "https://api.telegram.org/bot8574033484:AAHvlGEEnTkh_B4hy7PtZJLPraSp1m__h0c/getWebhookInfo"
 ````
 
 ## 📖 Documentation

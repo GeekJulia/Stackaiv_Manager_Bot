@@ -122,9 +122,22 @@ def health_check():
 
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
-    update = telebot.types.Update.de_json(request.json)
-    bot.process_new_updates([update])
-    return jsonify({"status": "ok"}), 200
+    try:
+        logger.info("=== TELEGRAM WEBHOOK HIT ===")
+        logger.info(f"Headers: {dict(request.headers)}")
+        logger.info(f"Body: {request.get_json()}")
+        
+        update = telebot.types.Update.de_json(request.json)
+        logger.info(f"Parsed update ID: {update.update_id}")
+        
+        bot.process_new_updates([update])
+        
+        logger.info("Update processed successfully")
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        logger.error(f"Telegram webhook error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # -------------------------
 # ERROR HANDLERS
