@@ -23,7 +23,8 @@ logger.info(f"Initializing bot with token: {TOKEN[:10]}...")
 # Initialize bot
 bot = telebot.TeleBot(
     TOKEN,
-    parse_mode="Markdown"
+    parse_mode="Markdown",
+    threaded=False
 )
 
 # Request timeout configuration

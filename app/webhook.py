@@ -148,7 +148,6 @@ def telegram_webhook():
     try:
         logger.info("=== TELEGRAM WEBHOOK HIT ===")
         
-        # ✅ CHECK IF BOT IS AVAILABLE
         if bot is None:
             logger.error("❌ Bot is None - import failed!")
             return jsonify({"status": "error", "message": "Bot not initialized"}), 500
@@ -157,17 +156,22 @@ def telegram_webhook():
         
         update = telebot.types.Update.de_json(request.json)
         logger.info(f"Parsed update ID: {update.update_id}")
+        logger.info(f"Update type: message={update.message}, callback={update.callback_query}")
         
-        # ✅ LOG HANDLER COUNTS
+        if update.message:
+            logger.info(f"Message text: {update.message.text}")
+            logger.info(f"Message from: {update.message.from_user.id}")
+        
         logger.info(f"Active message handlers: {len(bot.message_handlers)}")
         logger.info(f"Active callback handlers: {len(bot.callback_query_handlers)}")
         
-        # ✅ TRY TO PROCESS UPDATE WITH ERROR CATCHING
+        # ✅ ADD THREAD-SAFE PROCESSING
         try:
+            logger.info("🔄 Processing update...")
             bot.process_new_updates([update])
-            logger.info("✅ Update processed successfully")
+            logger.info("✅ Update processing completed")
         except Exception as process_error:
-            logger.error(f"❌ Error processing update: {process_error}", exc_info=True)
+            logger.error(f"❌ Error during process_new_updates: {process_error}", exc_info=True)
             raise
         
         return jsonify({"status": "ok"}), 200
