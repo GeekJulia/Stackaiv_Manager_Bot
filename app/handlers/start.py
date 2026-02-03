@@ -48,16 +48,35 @@ def start_handler(bot):
 
     @bot.message_handler(commands=['start'])
     def start(message):
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
-        kb.add(InlineKeyboardButton("➕ Onboard a New Program", callback_data="action:new_program"))
+        import logging
+        logger = logging.getLogger(__name__)
         
-        bot.send_message(
-            message.chat.id,
-            "👋 Welcome to Stackaiv!\n\nWhat would you like to do?",
-            reply_markup=kb,
-            parse_mode="Markdown"
-        )
+        try:
+            logger.info(f"🎯 /start command triggered by user {message.from_user.id}")
+            logger.info(f"Chat ID: {message.chat.id}")
+            
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+            kb.add(InlineKeyboardButton("➕ Onboard a New Program", callback_data="action:new_program"))
+            
+            logger.info("Attempting to send welcome message...")
+            
+            result = bot.send_message(
+                message.chat.id,
+                "👋 Welcome to Stackaiv!\n\nWhat would you like to do?",
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )
+            
+            logger.info(f"✅ Message sent successfully! Message ID: {result.message_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error in /start handler: {e}", exc_info=True)
+            # Try to send a simple message without markup
+            try:
+                bot.send_message(message.chat.id, "Error occurred. Please try again.")
+            except Exception as e2:
+                logger.error(f"❌ Failed to send error message: {e2}", exc_info=True)
 
     # -------------------------
     # Action: Go to Program Space
