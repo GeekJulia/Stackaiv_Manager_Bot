@@ -25,11 +25,7 @@ app.logger.setLevel(logging.INFO)
 
 # ✅ ADD ERROR HANDLING FOR BOT IMPORT
 try:
-    logger.info("Attempting to import bot from main...")
     from .main import bot
-    logger.info(f"✅ Bot imported successfully. Handlers registered: {len(bot.message_handlers)}")
-    logger.info(f"Message handler count: {len(bot.message_handlers)}")
-    logger.info(f"Callback handler count: {len(bot.callback_query_handlers)}")
 except Exception as e:
     logger.error(f"❌ CRITICAL: Failed to import bot from main: {e}", exc_info=True)
     bot = None  # Set to None so we can check later
@@ -101,8 +97,6 @@ def paystack_webhook():
         
         # Parse JSON
         data = request.get_json()
-        
-        # Log webhook event
         event = data.get("event")
         logger.info(f"Paystack webhook received: {event}")
         
@@ -146,36 +140,9 @@ def health_check():
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
     try:
-        logger.info("=== TELEGRAM WEBHOOK HIT ===")
-        
-        if bot is None:
-            logger.error("❌ Bot is None - import failed!")
-            return jsonify({"status": "error", "message": "Bot not initialized"}), 500
-        
-        logger.info(f"Body: {request.get_json()}")
-        
         update = telebot.types.Update.de_json(request.json)
-        logger.info(f"Parsed update ID: {update.update_id}")
-        logger.info(f"Update type: message={update.message}, callback={update.callback_query}")
-        
-        if update.message:
-            logger.info(f"Message text: {update.message.text}")
-            logger.info(f"Message from: {update.message.from_user.id}")
-        
-        logger.info(f"Active message handlers: {len(bot.message_handlers)}")
-        logger.info(f"Active callback handlers: {len(bot.callback_query_handlers)}")
-        
-        # ✅ ADD THREAD-SAFE PROCESSING
-        try:
-            logger.info("🔄 Processing update...")
-            bot.process_new_updates([update])
-            logger.info("✅ Update processing completed")
-        except Exception as process_error:
-            logger.error(f"❌ Error during process_new_updates: {process_error}", exc_info=True)
-            raise
-        
+        bot.process_new_updates([update])
         return jsonify({"status": "ok"}), 200
-        
     except Exception as e:
         logger.error(f"Telegram webhook error: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
