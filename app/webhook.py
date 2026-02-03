@@ -2,6 +2,8 @@ import os
 import logging
 import hmac
 import hashlib
+import telebot
+from app.main import bot  
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from .services.payments import handle_payment_webhook
@@ -117,6 +119,13 @@ def paystack_webhook():
 def health_check():
     """Health check endpoint"""
     return jsonify({"status": "ok", "service": "paystack-webhook"}), 200
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+    json_data = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_data)
+    bot.process_new_updates([update])
+    return jsonify({"status": "ok"}), 200
 
 # -------------------------
 # ERROR HANDLERS
