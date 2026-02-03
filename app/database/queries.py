@@ -1,12 +1,12 @@
 import os
-import psycopg2
+import psycopg # type: ignore
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 # Create connection
-conn = psycopg2.connect(
+conn = psycopg.connect(
     host=os.getenv("DB_HOST"),
     user=os.getenv("DB_USER"),
     port=os.getenv("DB_PORT"),
