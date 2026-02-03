@@ -249,21 +249,25 @@ def start_handler(bot):
                 parse_mode="HTML"
             )
 
-# -------------------------
-# Level Selected → Ask for College
-# -------------------------
-
+    # -------------------------
+    # Level Selected → Ask for College
+    # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("level:"))
     def handle_level(call):
         user_id = call.from_user.id
         level = call.data.split(":")[1]
+
+        # ✅ Check if session exists
+        if user_id not in user_sessions:
+            bot.answer_callback_query(call.id, "❌ Session expired. Use /start", show_alert=True)
+            return
 
         # Prevent double selection
         if user_sessions.get(user_id, {}).get("level"):
             bot.answer_callback_query(call.id, "Level already selected.")
             return
         
-        user_sessions[call.from_user.id] = {"level": level}
+        user_sessions[user_id]["level"] = level
 
         kb = InlineKeyboardMarkup()
         for college in COLLEGES.keys():
@@ -276,12 +280,13 @@ def start_handler(bot):
         kb.add(InlineKeyboardButton("⬅️ Back", callback_data="back:level"))
 
         bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=f"✅ Level selected: *{level}*\n\nNow select your college:",
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"✅ Level selected: *{level}*\n\nNow select your college:",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+
     # -------------------------
     # College Selected → Ask for Program
     # -------------------------
@@ -290,12 +295,22 @@ def start_handler(bot):
         user_id = call.from_user.id
         college = call.data.split(":")[1]
 
+        # ✅ Check if session exists
+        if user_id not in user_sessions:
+            bot.answer_callback_query(call.id, "❌ Session expired. Use /start", show_alert=True)
+            return
+
+        # ✅ Check if level was selected
+        if "level" not in user_sessions.get(user_id, {}):
+            bot.answer_callback_query(call.id, "❌ Session corrupted. Use /start", show_alert=True)
+            user_sessions.pop(user_id, None)
+            return
 
         if user_sessions.get(user_id, {}).get("college"):
             bot.answer_callback_query(call.id, "College already selected.")
             return
 
-        user_sessions[call.from_user.id]["college"] = college
+        user_sessions[user_id]["college"] = college
 
         kb = InlineKeyboardMarkup()
         programs = COLLEGES.get(college, [])
@@ -316,6 +331,7 @@ def start_handler(bot):
             reply_markup=kb,
             parse_mode="Markdown"
         )
+
     # -------------------------
     # Program Selected → Check Duplicates
     # -------------------------
@@ -325,12 +341,42 @@ def start_handler(bot):
         program = call.data.split(":")[1]
         user = call.from_user
 
-        if user_sessions.get(user_id, {}).get("program"):
+        # ✅ Check if session exists
+        if user_id not in user_sessions:
+            bot.answer_callback_query(
+                call.id, 
+                "❌ Session expired. Please start over.",
+                show_alert=True
+            )
+            bot.send_message(
+                call.message.chat.id,
+                "Your session has expired. Please use /start to begin again.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # ✅ Check if the session has the required data
+        session = user_sessions.get(user_id, {})
+        if "level" not in session or "college" not in session:
+            bot.answer_callback_query(
+                call.id,
+                "❌ Session corrupted. Please start over.",
+                show_alert=True
+            )
+            user_sessions.pop(user_id, None)
+            bot.send_message(
+                call.message.chat.id,
+                "Your session was corrupted. Please use /start to begin again.",
+                parse_mode="Markdown"
+            )
+            return
+
+        if session.get("program"):
             bot.answer_callback_query(call.id, "Program already selected.")
             return
 
         user_sessions[user_id]["program"] = program
-        session = user_sessions.get(user.id)
+        session = user_sessions.get(user_id)
 
         # Check if program already exists
         existing_program = check_program_exists(
@@ -373,7 +419,7 @@ def start_handler(bot):
             first_name=user.first_name
         )
 
-         # Save program
+        # Save program
         save_program(
             level=session["level"],
             college=session["college"],
@@ -428,6 +474,11 @@ def start_handler(bot):
         user_id = call.from_user.id
         step = call.data.split(":")[1]
 
+        # ✅ Check if session exists
+        if user_id not in user_sessions:
+            bot.answer_callback_query(call.id, "❌ Session expired. Use /start", show_alert=True)
+            return
+
         # Back to level selection
         if step == "level":
             user_sessions[user_id] = {}
@@ -446,6 +497,12 @@ def start_handler(bot):
 
         # Back to college selection
         elif step == "college":
+            # ✅ Check if level exists before going back
+            if "level" not in user_sessions.get(user_id, {}):
+                bot.answer_callback_query(call.id, "❌ Session corrupted. Use /start", show_alert=True)
+                user_sessions.pop(user_id, None)
+                return
+
             user_sessions[user_id].pop("college", None)
 
             kb = InlineKeyboardMarkup()
