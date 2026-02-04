@@ -238,7 +238,12 @@ def groups_handler(bot):
             print(f"Program ID: {program_id}")
             
             if not program_id:
-                return  # Group not set up, ignore
+                bot.send_message(
+                    chat_id,
+                    "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
+                    parse_mode="Markdown"
+                )
+                return  # Group not set up, inform users
             
             filename = doc.file_name or "untitled"
             
@@ -247,6 +252,14 @@ def groups_handler(bot):
             
             # Get all courses for this program
             courses = get_courses_by_program(program_id)
+
+            if not courses:
+                bot.send_message(
+                    chat_id,
+                    "⚠️ No courses are registered for this program yet. Please register courses in the program before uploading files.",
+                    parse_mode="Markdown"
+                )
+                return
             
             # Initialize/update session for this file
             # Use a unique key combining chat_id and file_id to handle multiple simultaneous uploads
