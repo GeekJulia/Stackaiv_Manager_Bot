@@ -398,9 +398,9 @@ def start_handler(bot):
             )
             return
 
-        if session.get("program"):
-            bot.answer_callback_query(call.id, "Program already selected.")
-            return
+        # if session.get("program"):
+        #     bot.answer_callback_query(call.id, "Program already selected.")
+        #     return
 
         user_sessions[user_id]["program"] = program
         session = user_sessions.get(user_id)
