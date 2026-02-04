@@ -1,4 +1,5 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import threading
 from ..database.queries import (
     get_user_program_id,
     get_courses_by_program,
@@ -11,6 +12,11 @@ from ..database.queries import (
 )
 
 file_sessions = {}
+
+# Batch upload handling for files.py (per user)
+file_batch_queues = {}  # {user_id: [file_dict1, file_dict2, ...]}
+file_batch_timers = {}  # {user_id: threading.Timer}
+file_batch_messages = {}  # {user_id: message_id} - stores the batch prompt message_id
 
 def files_handler(bot):
 
@@ -210,11 +216,14 @@ def files_handler(bot):
         )
 
     # -------------------------
-    # RECEIVE FILE & SAVE (PRIVATE CHAT ONLY!)
+    # RECEIVE FILE & SAVE (PRIVATE CHAT ONLY!) - BATCHED
     # -------------------------
     @bot.message_handler(content_types=['document'], func=lambda m: m.chat.type == 'private')
     def receive_file(message):
-        session = file_sessions.get(message.from_user.id)
+        user_id = message.from_user.id
+        session = file_sessions.get(user_id)
+        
+        # Must have active session from course/type selection
         if not session or session.get("stage") != "awaiting_file":
             return
 
@@ -222,70 +231,79 @@ def files_handler(bot):
         course_id = session["course_id"]
         resource_type_id = session["resource_type_id"]
         file_name = doc.file_name
-
-        try:
-            # Show processing message
-            loading_msg = bot.send_message(
-                message.chat.id,
-                "⏳ *Uploading resource...*",
-                parse_mode="Markdown"
-            )
-            
-            # Check if duplicate checking is needed for this resource type
-            if check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
-                try:
-                    bot.delete_message(message.chat.id, loading_msg.message_id)
-                except:
-                    pass
-                
-                bot.send_message(
-                    message.chat.id,
-                    "⚠️ *Duplicate File*\n\n"
-                    f"A file with the name *{file_name}* already exists for this course and resource type.\n\n"
-                    "Please rename your file and try again.",
-                    parse_mode="Markdown"
-                )
-                file_sessions.pop(message.from_user.id, None)
-                return
-            
-            # Save resource (no file_id conflict check needed since we handle duplicates)
-            resource_id = save_resource_with_type_check(
-                course_id=course_id,
-                resource_type_id=resource_type_id,
-                file_id=doc.file_id,
-                file_name=file_name,
-                uploader_id=message.from_user.id
-            )
-            
-            try:
-                bot.delete_message(message.chat.id, loading_msg.message_id)
-            except:
-                pass
-            
-            if resource_id:
-                bot.send_message(
-                    message.chat.id,
-                    "✅ *Resource uploaded successfully!*\n\n"
-                    "Your resource is now available for your program community.",
-                    parse_mode="Markdown"
-                )
-            else:
-                bot.send_message(
-                    message.chat.id,
-                    "⚠️ *Upload Issue*\n\n"
-                    "The resource could not be saved. Please try again.",
-                    parse_mode="Markdown"
-                )
-            
-            file_sessions.pop(message.from_user.id, None)
         
-        except Exception as e:
-            bot.send_message(
-                message.chat.id,
-                f"❌ *Error uploading resource:*\n\n{str(e)}",
-                parse_mode="Markdown"
-            )
-            file_sessions.pop(message.from_user.id, None)
+        print(f"File queued for batch: {file_name} (user: {user_id})")
+        
+        # Add to batch queue
+        if user_id not in file_batch_queues:
+            file_batch_queues[user_id] = []
+        
+        file_batch_queues[user_id].append({
+            "file_id": doc.file_id,
+            "file_name": file_name,
+            "course_id": course_id,
+            "resource_type_id": resource_type_id,
+            "uploader_id": user_id
+        })
+        
+        # Cancel existing timer if present
+        if user_id in file_batch_timers:
+            file_batch_timers[user_id].cancel()
+        
+        # Set new timer to process batch after 2 seconds
+        def process_batch_callback():
+            display_file_batch_prompt(user_id, message.chat.id, bot)
+        
+        timer = threading.Timer(2.0, process_batch_callback)
+        file_batch_timers[user_id] = timer
+        timer.start()
+        
+        print(f"File batch queue for user {user_id}: {len(file_batch_queues[user_id])} files")
+
+    # -------------------------
+    # Display File Batch Prompt
+    # -------------------------
+    def display_file_batch_prompt(user_id, chat_id, bot):
+        """Show batch prompt for all queued files"""
+        if user_id not in file_batch_queues or not file_batch_queues[user_id]:
+            return
+        
+        queue = file_batch_queues[user_id]
+        
+        # Build file list text
+        file_list = "📎 *Files queued for upload:*\n\n"
+        for i, f in enumerate(queue, 1):
+            course = get_course_info(f['course_id'])
+            file_list += f"{i}. `{f['file_name']}`\n   → {course['course_code']}\n"
+        
+        file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
+        file_list += "Review files above. Confirm to upload all."
+        
+        # Build keyboard
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton("✅ Upload All", callback_data="fbatch:process"),
+            InlineKeyboardButton("❌ Cancel", callback_data="fbatch:cancel")
+        )
+        
+        # Send batch prompt
+        msg = bot.send_message(
+            chat_id,
+            file_list,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        
+        # Store message_id for this batch
+        file_batch_messages[user_id] = msg.message_id
+        
+        # Initialize batch session (shared for all files in this batch)
+        session_key = f"fbatch:{user_id}"
+        file_sessions[session_key] = {
+            "stage": "batch_processing",
+            "user_id": user_id,
+            "file_count": len(queue)
+        }
 
     # -------------------------
     # GET RESOURCE → SELECT COURSE
@@ -446,4 +464,91 @@ def files_handler(bot):
             return
 
         # Cleanup
+        file_sessions.pop(user_id, None)
+    
+    # -------------------------
+    # File Batch: Process All
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "fbatch:process")
+    def fbatch_process_all(call):
+        user_id = call.from_user.id
+        
+        queue = file_batch_queues.get(user_id, [])
+        if not queue:
+            bot.answer_callback_query(call.id, "Queue is empty", show_alert=True)
+            return
+        
+        # Process all files
+        success_count = 0
+        duplicate_count = 0
+        error_count = 0
+        
+        for file_data in queue:
+            try:
+                is_duplicate = check_duplicate_resource_by_type(
+                    file_data['course_id'],
+                    file_data['resource_type_id'],
+                    file_data['file_name']
+                )
+                
+                if is_duplicate:
+                    duplicate_count += 1
+                    continue
+                
+                resource_id = save_resource_with_type_check(
+                    course_id=file_data['course_id'],
+                    resource_type_id=file_data['resource_type_id'],
+                    file_id=file_data['file_id'],
+                    file_name=file_data['file_name'],
+                    uploader_id=user_id
+                )
+                
+                if resource_id:
+                    success_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                print(f"Error processing file {file_data['file_name']}: {e}")
+                error_count += 1
+        
+        # Show result
+        result_msg = f"✅ *Batch Upload Complete*\n\n"
+        result_msg += f"✔️ {success_count} file(s) uploaded\n"
+        if duplicate_count > 0:
+            result_msg += f"⏭️ {duplicate_count} file(s) skipped (duplicates)\n"
+        if error_count > 0:
+            result_msg += f"❌ {error_count} file(s) failed\n"
+        result_msg += "\nYour resources are now available for your program community."
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=result_msg,
+            parse_mode="Markdown"
+        )
+        
+        # Clean up
+        file_batch_queues.pop(user_id, None)
+        file_batch_messages.pop(user_id, None)
+        file_sessions.pop(f"fbatch:{user_id}", None)
+        file_sessions.pop(user_id, None)
+    
+    # -------------------------
+    # File Batch: Cancel
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "fbatch:cancel")
+    def fbatch_cancel(call):
+        user_id = call.from_user.id
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="❌ *Batch upload cancelled*",
+            parse_mode="Markdown"
+        )
+        
+        # Clean up
+        file_batch_queues.pop(user_id, None)
+        file_batch_messages.pop(user_id, None)
+        file_sessions.pop(f"fbatch:{user_id}", None)
         file_sessions.pop(user_id, None)

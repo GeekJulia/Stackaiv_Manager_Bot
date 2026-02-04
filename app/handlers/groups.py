@@ -1,4 +1,5 @@
 import re
+import threading
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from ..database.queries import (
     get_program_by_id,
@@ -13,6 +14,11 @@ from ..database.queries import (
 
 group_sessions = {}
 # Sessions are keyed by f"{chat_id}_{message_id}" to support concurrent uploads
+
+# Batch upload handling
+batch_queues = {}  # {chat_id: [file_dict1, file_dict2, ...]}
+batch_timers = {}  # {chat_id: threading.Timer}
+batch_messages = {}  # {chat_id: message_id} - stores the batch prompt message_id
 
 def groups_handler(bot):
     
@@ -212,38 +218,27 @@ def groups_handler(bot):
         return normalize_course_code(code1) == normalize_course_code(code2)
     
     # -------------------------
-    # Handle Document Upload in Group
+    # Handle Document Upload in Group - BATCHED
     # -------------------------
     @bot.message_handler(content_types=['document'], func=lambda m: m.chat.type in ['group', 'supergroup'])
     def handle_group_document(message):
         chat_id = message.chat.id
         doc = message.document
         file_id = doc.file_id
+        filename = doc.file_name or "untitled"
         
-        # DEBUG: Log everything
-        print(f"Document received in chat: {chat_id}")
-        print(f"Filename: {message.document.file_name}")
-        print(f"Chat type: {message.chat.type}")
+        print(f"Document queued: {filename} (chat: {chat_id})")
         
         program_id = get_group_program_id(chat_id)
-        print(f"Program ID: {program_id}")
-        
         if not program_id:
             bot.send_message(
                 chat_id,
                 "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
                 parse_mode="Markdown"
             )
-            return  # Group not set up, inform users
+            return
         
-        filename = doc.file_name or "untitled"
-        
-        # Extract course code
-        course_code, confidence = extract_course_code(filename)
-        
-        # Get all courses for this program
         courses = get_courses_by_program(program_id)
-
         if not courses:
             bot.send_message(
                 chat_id,
@@ -252,111 +247,34 @@ def groups_handler(bot):
             )
             return
         
-        # -------------------------
-        # Course Code Detected
-        # -------------------------
-        if course_code:
-            # Check if detected course code is registered (match with or without space)
-            matching_course = None
-            for c in courses:
-                if courses_match(course_code, c['course_code']):
-                    matching_course = c
-                    break
-            
-            if matching_course:
-                course_id = matching_course['id']
-                registered_code = matching_course['course_code']
-                
-                kb = InlineKeyboardMarkup()
-                kb.add(
-                    InlineKeyboardButton(
-                        f"✅ Yes, {registered_code}",
-                        callback_data=f"gconf:yes:{course_id}"
-                    ),
-                    InlineKeyboardButton(
-                        "❌ No, choose manually",
-                        callback_data="gconf:no"
-                    )
-                )
-                
-                response_msg = bot.send_message(
-                    chat_id,
-                    f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
-                    parse_mode="Markdown",
-                    reply_markup=kb
-                )
-                
-                # Store session keyed by response message_id for concurrent upload isolation
-                session_key = f"{chat_id}_{response_msg.message_id}"
-                group_sessions[session_key] = {
-                    "stage": "awaiting_resource_type",
-                    "file_id": file_id,
-                    "file_name": filename,
-                    "uploader_id": message.from_user.id,
-                    "chat_id": chat_id,
-                    "course_id": course_id,
-                    "course_code": registered_code
-                }
-            else:
-                # Detected but not registered - show manual selection with warning
-                kb = InlineKeyboardMarkup()
-                for c in courses:
-                    kb.add(
-                        InlineKeyboardButton(
-                            c['course_code'],
-                            callback_data=f"gcourse:{c['id']}"
-                        )
-                    )
-                
-                response_msg = bot.send_message(
-                    chat_id,
-                    (
-                        f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
-                        "📚 *Select from your registered courses:*"
-                    ),
-                    parse_mode="Markdown",
-                    reply_markup=kb
-                )
-                
-                # Store session keyed by response message_id
-                session_key = f"{chat_id}_{response_msg.message_id}"
-                group_sessions[session_key] = {
-                    "stage": "awaiting_resource_type",
-                    "file_id": file_id,
-                    "file_name": filename,
-                    "uploader_id": message.from_user.id,
-                    "chat_id": chat_id
-                }
+        # Extract course code
+        course_code, confidence = extract_course_code(filename)
         
-        # -------------------------
-        # No Detection - Ask to select course
-        # -------------------------
-        else:
-            kb = InlineKeyboardMarkup()
-            for c in courses:
-                kb.add(
-                    InlineKeyboardButton(
-                        c['course_code'],
-                        callback_data=f"gcourse:{c['id']}"
-                    )
-                )
-            
-            response_msg = bot.send_message(
-                chat_id,
-                "📚 *Select the course for this file:*",
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-            
-            # Store session keyed by response message_id
-            session_key = f"{chat_id}_{response_msg.message_id}"
-            group_sessions[session_key] = {
-                "stage": "awaiting_resource_type",
-                "file_id": file_id,
-                "file_name": filename,
-                "uploader_id": message.from_user.id,
-                "chat_id": chat_id
-            }
+        # Add to batch queue
+        if chat_id not in batch_queues:
+            batch_queues[chat_id] = []
+        
+        batch_queues[chat_id].append({
+            "file_id": file_id,
+            "file_name": filename,
+            "uploader_id": message.from_user.id,
+            "course_code": course_code,
+            "program_id": program_id
+        })
+        
+        # Cancel existing timer if present
+        if chat_id in batch_timers:
+            batch_timers[chat_id].cancel()
+        
+        # Set new timer to process batch after 2 seconds
+        def process_batch_callback():
+            display_batch_prompt(chat_id, bot)
+        
+        timer = threading.Timer(2.0, process_batch_callback)
+        batch_timers[chat_id] = timer
+        timer.start()
+        
+        print(f"Batch queue for chat {chat_id}: {len(batch_queues[chat_id])} files")
     
     # -------------------------
     # Confirm Detected Course - Yes
@@ -459,6 +377,309 @@ def groups_handler(bot):
             parse_mode="Markdown",
             reply_markup=kb
         )
+    
+    # -------------------------
+    # Display Batch Upload Prompt
+    # -------------------------
+    def display_batch_prompt(chat_id, bot):
+        """Show batch prompt for all queued files"""
+        if chat_id not in batch_queues or not batch_queues[chat_id]:
+            return
+        
+        queue = batch_queues[chat_id]
+        courses = get_courses_by_program(queue[0]['program_id'])
+        
+        # Build file list text
+        file_list = "📎 *Files queued for upload:*\n\n"
+        for i, f in enumerate(queue, 1):
+            detected = f['course_code'] if f['course_code'] else "❓ No course detected"
+            file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
+        
+        file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
+        file_list += "📚 *Select course & resource type for all files:*"
+        
+        # Build keyboard with courses and resource types
+        kb = InlineKeyboardMarkup()
+        
+        # Course selection row
+        kb.add(InlineKeyboardButton("📚 Select Course", callback_data="batch:course"))
+        
+        # Resource type selection row
+        kb.add(InlineKeyboardButton("📂 Select Type", callback_data="batch:type"))
+        
+        # Action buttons
+        kb.add(
+            InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
+            InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel")
+        )
+        
+        # Send batch prompt
+        msg = bot.send_message(
+            chat_id,
+            file_list,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        
+        # Store message_id for this batch
+        batch_messages[chat_id] = msg.message_id
+        
+        # Initialize batch session (shared for all files in this batch)
+        session_key = f"{chat_id}_{msg.message_id}"
+        group_sessions[session_key] = {
+            "stage": "batch_awaiting_course",
+            "batch_id": chat_id,
+            "file_count": len(queue),
+            "course_id": None,
+            "resource_type_id": None
+        }
+    
+    # -------------------------
+    # Batch: Select Course for All Files
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:course")
+    def batch_select_course(call):
+        chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
+        program_id = batch_queues[chat_id][0]['program_id']
+        courses = get_courses_by_program(program_id)
+        
+        kb = InlineKeyboardMarkup()
+        for c in courses:
+            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"batch_course:{c['id']}"))
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="📚 *Select the course for all files:*",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_selecting_course"
+    
+    # -------------------------
+    # Batch: Course Selected
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("batch_course:"))
+    def batch_course_selected(call):
+        chat_id = call.message.chat.id
+        course_id = int(call.data.split(":")[1])
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
+        session["course_id"] = course_id
+        
+        # Show resource type selection
+        resource_types = get_resource_types()
+        kb = InlineKeyboardMarkup()
+        for r in resource_types:
+            kb.add(InlineKeyboardButton(r['name'], callback_data=f"batch_type:{r['id']}"))
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="📂 *Select the resource type for all files:*",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_selecting_type"
+    
+    # -------------------------
+    # Batch: Resource Type Selected
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("batch_type:"))
+    def batch_type_selected(call):
+        chat_id = call.message.chat.id
+        resource_type_id = int(call.data.split(":")[1])
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
+        session["resource_type_id"] = resource_type_id
+        
+        # Go back to main batch prompt showing selections
+        course_id = session.get("course_id")
+        resource_type_id_val = session.get("resource_type_id")
+        
+        course = None
+        resource_type = None
+        
+        if course_id:
+            courses = get_courses_by_program(batch_queues[chat_id][0]['program_id'])
+            for c in courses:
+                if c['id'] == course_id:
+                    course = c
+                    break
+        
+        if resource_type_id_val:
+            types = get_resource_types()
+            for t in types:
+                if t['id'] == resource_type_id_val:
+                    resource_type = t
+                    break
+        
+        queue = batch_queues[chat_id]
+        file_list = f"📎 *{len(queue)} files ready to upload*\n\n"
+        file_list += f"📚 **Course:** `{course['course_code'] if course else 'Not selected'}`\n"
+        file_list += f"📂 **Type:** `{resource_type['name'] if resource_type else 'Not selected'}`\n\n"
+        file_list += "Files:\n"
+        for i, f in enumerate(queue, 1):
+            file_list += f"  {i}. `{f['file_name']}`\n"
+        
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
+            InlineKeyboardButton("↩️ Back", callback_data="batch:back")
+        )
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=file_list,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+    
+    # -------------------------
+    # Batch: Back to Main Menu
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:back")
+    def batch_back(call):
+        chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            return
+        
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("📚 Select Course", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("📂 Select Type", callback_data="batch:type"))
+        kb.add(
+            InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
+            InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel")
+        )
+        
+        queue = batch_queues[chat_id]
+        file_list = "📎 *Files queued for upload:*\n\n"
+        for i, f in enumerate(queue, 1):
+            detected = f['course_code'] if f['course_code'] else "❓ No course detected"
+            file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
+        
+        file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
+        file_list += "📚 *Select course & resource type for all files:*"
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=file_list,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_awaiting_course"
+    
+    # -------------------------
+    # Batch: Process All Files
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:process")
+    def batch_process_all(call):
+        chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
+        course_id = session.get("course_id")
+        resource_type_id = session.get("resource_type_id")
+        
+        if not course_id or not resource_type_id:
+            bot.answer_callback_query(
+                call.id,
+                "⚠️ Please select both course and resource type",
+                show_alert=True
+            )
+            return
+        
+        queue = batch_queues.get(chat_id, [])
+        if not queue:
+            bot.answer_callback_query(call.id, "Queue is empty", show_alert=True)
+            return
+        
+        # Process all files
+        success_count = 0
+        duplicate_count = 0
+        
+        for file_data in queue:
+            is_duplicate = check_duplicate_resource(
+                course_id,
+                resource_type_id,
+                file_data['file_name']
+            )
+            
+            if is_duplicate:
+                duplicate_count += 1
+                continue
+            
+            resource_id = save_resource(
+                course_id=course_id,
+                resource_type_id=resource_type_id,
+                file_id=file_data['file_id'],
+                file_name=file_data['file_name'],
+                uploader_id=file_data['uploader_id']
+            )
+            
+            save_approval(resource_id, call.from_user.id)
+            success_count += 1
+        
+        # Show result
+        approver_username = call.from_user.username or call.from_user.first_name
+        result_msg = f"✅ *Batch Upload Complete*\n\n"
+        result_msg += f"✔️ {success_count} file(s) added\n"
+        if duplicate_count > 0:
+            result_msg += f"⏭️ {duplicate_count} file(s) skipped (already exist)\n"
+        result_msg += f"\n👤 Approved by: @{approver_username}"
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=result_msg,
+            parse_mode="Markdown"
+        )
+        
+        # Clean up
+        batch_queues.pop(chat_id, None)
+        batch_messages.pop(chat_id, None)
+        group_sessions.pop(session_key, None)
+    
+    # -------------------------
+    # Batch: Cancel
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:cancel")
+    def batch_cancel(call):
+        chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="❌ *Batch upload cancelled*"
+        )
+        
+        # Clean up
+        batch_queues.pop(chat_id, None)
+        batch_messages.pop(chat_id, None)
+        group_sessions.pop(session_key, None)
     
     # -------------------------
     # Resource Type Selected - Check Duplicate & Save
