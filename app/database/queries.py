@@ -530,11 +530,11 @@ def get_transaction_by_id(transaction_id):
 def get_all_users():
     """Get all telegram users (deduplicated by telegram_id)"""
     with conn.cursor() as cursor:
-        # DISTINCT ON ensures one row per telegram_id (latest by created_at)
         cursor.execute("""
-            SELECT DISTINCT ON (telegram_id) id, telegram_id, username, first_name
+            SELECT MIN(id) AS id, telegram_id, MAX(username) AS username, MAX(first_name) AS first_name
             FROM users
-            ORDER BY telegram_id, created_at DESC
+            GROUP BY telegram_id
+            ORDER BY id DESC
         """)
         return [
             {

@@ -217,7 +217,9 @@ def admin_handler(bot):
     def list_programs(call):
         try:
             programs = get_all_programs()
-            
+
+            # Sort programs by id descending (most recent first)
+            programs = sorted(programs, key=lambda p: p['id'], reverse=True)
             total = len(programs)
             if not total:
                 bot.edit_message_text(
@@ -230,7 +232,8 @@ def admin_handler(bot):
 
             parts = call.data.split(":")
             page = int(parts[2]) if len(parts) > 2 else 0
-            page_size = 10
+            # Use small page size to guarantee short messages
+            page_size = 5
             total_pages = (total + page_size - 1) // page_size
             page = max(0, min(page, total_pages - 1))
 
