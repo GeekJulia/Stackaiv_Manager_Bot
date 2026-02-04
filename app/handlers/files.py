@@ -1,5 +1,7 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import threading
+from ..utils.messages import safe_edit_or_send
+from ..utils.keyboards import build_course_keyboard, build_resource_type_keyboard
 from ..database.queries import (
     get_user_program_id,
     get_courses_by_program,
@@ -31,37 +33,25 @@ def files_handler(bot):
         kb.add(InlineKeyboardButton("📧 Contact Admin", callback_data="hub:contact_admin"))
         kb.add(InlineKeyboardButton("⬅️ Back", callback_data="action:goto_space"))
         
-        try:
-            bot.edit_message_text(
-                (
-                    "ℹ️ *Help Guide*\n\n"
-                    "📚 *All Courses* — View courses in your program\n"
-                    "➕ *Add Resource* — Upload notes, slides, PDFs, etc\n"
-                    "📥 *Get Resource* — Download resources shared by others\n\n"
-                    "Resources are organized by *course* and *type*.\n\n"
-                    "*Format:*\n"
-                    "• Send courses: `MAT 111, CSC 111` (comma-separated)\n"
-                    "• Request slots: `Slot 1, Slot 2` (comma-separated)\n\n"
-                    "For serious issues, contact the admin."
-                ),
-                call.message.chat.id,
-                message_id,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-        except:
-            bot.send_message(
-                call.message.chat.id,
-                (
-                    "ℹ️ *Help Guide*\n\n"
-                    "📚 *All Courses* — View courses in your program\n"
-                    "➕ *Add Resource* — Upload notes, slides, PDFs, etc\n"
-                    "📥 *Get Resource* — Download resources shared by others\n\n"
-                    "Resources are organized by *course* and *type*."
-                ),
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
+        help_text = (
+            "ℹ️ *Help Guide*\n\n"
+            "📚 *All Courses* — View courses in your program\n"
+            "➕ *Add Resource* — Upload notes, slides, PDFs, etc\n"
+            "📥 *Get Resource* — Download resources shared by others\n\n"
+            "Resources are organized by *course* and *type*.\n\n"
+            "*Format:*\n"
+            "• Send courses: `MAT 111, CSC 111` (comma-separated)\n"
+            "• Request slots: `Slot 1, Slot 2` (comma-separated)\n\n"
+            "For serious issues, contact the admin."
+        )
+        safe_edit_or_send(
+            bot,
+            call.message.chat.id,
+            message_id,
+            help_text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
     
     # -------------------------
     # CONTACT ADMIN
@@ -154,14 +144,7 @@ def files_handler(bot):
         program_id = get_user_program_id(call.from_user.id)
         courses = get_courses_by_program(program_id)
 
-        kb = InlineKeyboardMarkup()
-        for c in courses:
-            kb.add(
-                InlineKeyboardButton(
-                    c["course_code"],
-                    callback_data=f"add:course:{c['id']}"
-                )
-            )
+        kb = build_course_keyboard(courses, callback_prefix="add:course")
 
         bot.send_message(
             call.message.chat.id,
@@ -185,14 +168,7 @@ def files_handler(bot):
 
         course = get_course_info(course_id)
 
-        kb = InlineKeyboardMarkup()
-        for r in resource_types:
-            kb.add(
-                InlineKeyboardButton(
-                    r["name"],
-                    callback_data=f"add:type:{r['id']}"
-                )
-            )
+        kb = build_resource_type_keyboard(resource_types, callback_prefix="add:type")
 
         bot.send_message(
             call.message.chat.id,
@@ -313,14 +289,7 @@ def files_handler(bot):
         program_id = get_user_program_id(call.from_user.id)
         courses = get_courses_by_program(program_id)
 
-        kb = InlineKeyboardMarkup()
-        for c in courses:
-            kb.add(
-                InlineKeyboardButton(
-                    c["course_code"],
-                    callback_data=f"get:course:{c['id']}"
-                )
-            )
+        kb = build_course_keyboard(courses, callback_prefix="get:course")
 
         bot.send_message(
             call.message.chat.id,
@@ -344,14 +313,7 @@ def files_handler(bot):
 
         course = get_course_info(course_id)
 
-        kb = InlineKeyboardMarkup()
-        for r in resource_types:
-            kb.add(
-                InlineKeyboardButton(
-                    r["name"],
-                    callback_data=f"get:type:{r['id']}"
-                )
-            )
+        kb = build_resource_type_keyboard(resource_types, callback_prefix="get:type")
 
         bot.send_message(
             call.message.chat.id,

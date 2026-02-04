@@ -178,23 +178,40 @@ def get_program_creator(program_id):
             }
         return None
 
-def get_program_info(program_id):
-    """Get program information by program ID"""
+def get_program_info(program_id, include_user_id=False):
+    """Get program information by program ID
+    
+    Args:
+        program_id: The program ID to fetch
+        include_user_id: If True, includes user_id (created_by) in the result
+    
+    Returns:
+        Dictionary with program info: id, level, college, program_name, and optionally user_id
+    """
     with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT id, level, college, name, created_by
-            FROM programs
-            WHERE id = %s
-        """, (program_id,))
+        if include_user_id:
+            cursor.execute("""
+                SELECT id, level, college, name, created_by
+                FROM programs
+                WHERE id = %s
+            """, (program_id,))
+        else:
+            cursor.execute("""
+                SELECT id, level, college, name
+                FROM programs
+                WHERE id = %s
+            """, (program_id,))
         r = cursor.fetchone()
         if r:
-            return {
+            result = {
                 "id": r[0],
                 "level": r[1],
                 "college": r[2],
-                "program_name": r[3],
-                "user_id": r[4]
+                "program_name": r[3]
             }
+            if include_user_id and len(r) > 4:
+                result["user_id"] = r[4]
+            return result
         return None
 
 def clear_user_program_data(program_id):
@@ -228,23 +245,14 @@ def clear_user_program_data(program_id):
 # GROUP MANAGEMENT FUNCTIONS
 # -------------------------
 
+# Note: get_program_by_id is deprecated - use get_program_info instead
 def get_program_by_id(program_id):
-    """Get program details by program ID"""
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT id, level, college, name
-            FROM programs
-            WHERE id = %s
-        """, (program_id,))
-        r = cursor.fetchone()
-        if r:
-            return {
-                "id": r[0],
-                "level": r[1],
-                "college": r[2],
-                "name": r[3]
-            }
-        return None
+    """Get program details by program ID (deprecated - use get_program_info instead)"""
+    result = get_program_info(program_id, include_user_id=False)
+    if result:
+        # Maintain backward compatibility by adding 'name' field
+        result['name'] = result['program_name']
+    return result
 
 def save_group(telegram_chat_id, program_id):
     """Save or update group chat with program ID"""

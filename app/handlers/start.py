@@ -230,28 +230,6 @@ def start_handler(bot):
             parse_mode="Markdown"
         )
 
-# -------------------------
-    # Helper: Start New Registration
-    # -------------------------
-    def start_new_registration(bot, message, is_callback=False):
-        user_id = message.from_user.id if is_callback else message.from_user.id
-        chat_id = message.chat.id
-        
-        user_sessions[user_id] = {}
-
-        kb = InlineKeyboardMarkup()
-        levels = ['100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
-        for lvl in levels:
-            kb.add(InlineKeyboardButton(lvl, callback_data=f"level:{lvl}"))
-
-        bot.send_message(
-            chat_id,
-            "👋 Welcome to Stackaiv\n\nSelect your level:",
-            reply_markup=kb,
-            parse_mode="Markdown"
-        )
-
-
     # -------------------------
     # Who Am I Command
     # -------------------------

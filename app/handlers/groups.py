@@ -2,7 +2,7 @@ import re
 import threading
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from ..database.queries import (
-    get_program_by_id,
+    get_program_info,
     save_group,
     get_group_program_id,
     get_courses_by_program,
@@ -132,7 +132,7 @@ def groups_handler(bot):
         
         try:
             # Verify program exists
-            program = get_program_by_id(program_id)
+            program = get_program_info(program_id)
             
             if not program:
                 bot.send_message(
@@ -152,7 +152,7 @@ def groups_handler(bot):
                     chat_id,
                     (
                         "✅ *Group Setup Complete!*\n\n"
-                        f"📚 Program: *{program['name']}*\n"
+                        f"📚 Program: *{program['program_name']}*\n"
                         f"🎓 Level: *{program['level']}*\n"
                         f"🏫 College: *{program['college']}*\n\n"
                         "You can now share files and I'll track them automatically!\n\n"
@@ -212,10 +212,6 @@ def groups_handler(bot):
     def normalize_course_code(code):
         """Normalize course code for comparison (remove spaces)"""
         return code.replace(" ", "").upper()
-    
-    def courses_match(code1, code2):
-        """Check if two course codes match (ignoring spacing)"""
-        return normalize_course_code(code1) == normalize_course_code(code2)
     
     # -------------------------
     # Handle Document Upload in Group - BATCHED

@@ -30,6 +30,6 @@ groups_handler(bot)
 files_handler(bot)
 admin_handler(bot)
 
-# print("Bot is running...")
-# # Use infinity_polling with allowed_updates and request_kwargs to handle timeouts
+# Bot polling is handled by webhook.py when deployed
+# For local testing, uncomment the line below:
 # bot.infinity_polling(timeout=30, long_polling_timeout=30)
