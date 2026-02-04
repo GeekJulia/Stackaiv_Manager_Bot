@@ -220,126 +220,85 @@ def groups_handler(bot):
         doc = message.document
         file_id = doc.file_id
         
-        # Check if this file is already being processed
-        if file_id in processing_files:
-            return  # Already processing this file
+        # DEBUG: Log everything
+        print(f"Document received in chat: {chat_id}")
+        print(f"Filename: {message.document.file_name}")
+        print(f"Chat type: {message.chat.type}")
         
-        # Mark file as being processed
-        processing_files[file_id] = chat_id
+        program_id = get_group_program_id(chat_id)
+        print(f"Program ID: {program_id}")
         
-        try:
-            # DEBUG: Log everything
-            print(f"Document received in chat: {chat_id}")
-            print(f"Filename: {message.document.file_name}")
-            print(f"Chat type: {message.chat.type}")
-            
-            program_id = get_group_program_id(chat_id)
-            print(f"Program ID: {program_id}")
-            
-            if not program_id:
-                bot.send_message(
-                    chat_id,
-                    "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
-                    parse_mode="Markdown"
-                )
-                return  # Group not set up, inform users
-            
-            filename = doc.file_name or "untitled"
-            
-            # Extract course code
-            course_code, confidence = extract_course_code(filename)
-            
-            # Get all courses for this program
-            courses = get_courses_by_program(program_id)
+        if not program_id:
+            bot.send_message(
+                chat_id,
+                "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
+                parse_mode="Markdown"
+            )
+            return  # Group not set up, inform users
+        
+        filename = doc.file_name or "untitled"
+        
+        # Extract course code
+        course_code, confidence = extract_course_code(filename)
+        
+        # Get all courses for this program
+        courses = get_courses_by_program(program_id)
 
-            if not courses:
-                bot.send_message(
-                    chat_id,
-                    "⚠️ No courses are registered for this program yet. Please register courses in the program before uploading files.",
-                    parse_mode="Markdown"
-                )
-                return
+        if not courses:
+            bot.send_message(
+                chat_id,
+                "⚠️ No courses are registered for this program yet. Please register courses in the program before uploading files.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # -------------------------
+        # Course Code Detected
+        # -------------------------
+        if course_code:
+            # Check if detected course code is registered (match with or without space)
+            matching_course = None
+            for c in courses:
+                if courses_match(course_code, c['course_code']):
+                    matching_course = c
+                    break
             
-            # -------------------------
-            # Course Code Detected
-            # -------------------------
-            if course_code:
-                # Check if detected course code is registered (match with or without space)
-                matching_course = None
-                for c in courses:
-                    if courses_match(course_code, c['course_code']):
-                        matching_course = c
-                        break
+            if matching_course:
+                course_id = matching_course['id']
+                registered_code = matching_course['course_code']
                 
-                if matching_course:
-                    course_id = matching_course['id']
-                    registered_code = matching_course['course_code']
-                    
-                    kb = InlineKeyboardMarkup()
-                    kb.add(
-                        InlineKeyboardButton(
-                            f"✅ Yes, {registered_code}",
-                            callback_data=f"gconf:yes:{course_id}"
-                        ),
-                        InlineKeyboardButton(
-                            "❌ No, choose manually",
-                            callback_data="gconf:no"
-                        )
+                kb = InlineKeyboardMarkup()
+                kb.add(
+                    InlineKeyboardButton(
+                        f"✅ Yes, {registered_code}",
+                        callback_data=f"gconf:yes:{course_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "❌ No, choose manually",
+                        callback_data="gconf:no"
                     )
-                    
-                    response_msg = bot.send_message(
-                        chat_id,
-                        f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
-                        parse_mode="Markdown",
-                        reply_markup=kb
-                    )
-                    
-                    # Store session keyed by response message_id for concurrent upload isolation
-                    session_key = f"{chat_id}_{response_msg.message_id}"
-                    group_sessions[session_key] = {
-                        "stage": "awaiting_resource_type",
-                        "file_id": file_id,
-                        "file_name": filename,
-                        "uploader_id": message.from_user.id,
-                        "chat_id": chat_id,
-                        "course_id": course_id,
-                        "course_code": registered_code
-                    }
-                else:
-                    # Detected but not registered - show manual selection with warning
-                    kb = InlineKeyboardMarkup()
-                    for c in courses:
-                        kb.add(
-                            InlineKeyboardButton(
-                                c['course_code'],
-                                callback_data=f"gcourse:{c['id']}"
-                            )
-                        )
-                    
-                    response_msg = bot.send_message(
-                        chat_id,
-                        (
-                            f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
-                            "📚 *Select from your registered courses:*"
-                        ),
-                        parse_mode="Markdown",
-                        reply_markup=kb
-                    )
-                    
-                    # Store session keyed by response message_id
-                    session_key = f"{chat_id}_{response_msg.message_id}"
-                    group_sessions[session_key] = {
-                        "stage": "awaiting_resource_type",
-                        "file_id": file_id,
-                        "file_name": filename,
-                        "uploader_id": message.from_user.id,
-                        "chat_id": chat_id
-                    }
-            
-            # -------------------------
-            # No Detection - Ask to select course
-            # -------------------------
+                )
+                
+                response_msg = bot.send_message(
+                    chat_id,
+                    f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
+                
+                # Store session keyed by response message_id for concurrent upload isolation
+                session_key = f"{chat_id}_{response_msg.message_id}"
+                group_sessions[session_key] = {
+                    "stage": "awaiting_resource_type",
+                    "file_id": file_id,
+                    "file_name": filename,
+                    "uploader_id": message.from_user.id,
+                    "chat_id": chat_id,
+                    "course_id": course_id,
+                    "course_code": registered_code
+                }
             else:
+                # Detected but not registered - show manual selection with warning
                 kb = InlineKeyboardMarkup()
                 for c in courses:
                     kb.add(
@@ -351,7 +310,10 @@ def groups_handler(bot):
                 
                 response_msg = bot.send_message(
                     chat_id,
-                    "📚 *Select the course for this file:*",
+                    (
+                        f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
+                        "📚 *Select from your registered courses:*"
+                    ),
                     parse_mode="Markdown",
                     reply_markup=kb
                 )
@@ -365,6 +327,36 @@ def groups_handler(bot):
                     "uploader_id": message.from_user.id,
                     "chat_id": chat_id
                 }
+        
+        # -------------------------
+        # No Detection - Ask to select course
+        # -------------------------
+        else:
+            kb = InlineKeyboardMarkup()
+            for c in courses:
+                kb.add(
+                    InlineKeyboardButton(
+                        c['course_code'],
+                        callback_data=f"gcourse:{c['id']}"
+                    )
+                )
+            
+            response_msg = bot.send_message(
+                chat_id,
+                "📚 *Select the course for this file:*",
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            
+            # Store session keyed by response message_id
+            session_key = f"{chat_id}_{response_msg.message_id}"
+            group_sessions[session_key] = {
+                "stage": "awaiting_resource_type",
+                "file_id": file_id,
+                "file_name": filename,
+                "uploader_id": message.from_user.id,
+                "chat_id": chat_id
+            }
     
     # -------------------------
     # Confirm Detected Course - Yes
