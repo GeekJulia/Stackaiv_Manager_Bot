@@ -114,36 +114,56 @@ def groups_handler(bot):
             )
             return
         
-        # Verify program exists
-        program = get_program_by_id(program_id)
-        
-        if not program:
+        try:
+            # Verify program exists
+            program = get_program_by_id(program_id)
+            
+            if not program:
+                bot.send_message(
+                    chat_id,
+                    "❌ Program ID not found. Please check and try again.",
+                    parse_mode="Markdown"
+                )
+                # Clear session on error
+                group_sessions.pop(chat_id, None)
+                return
+            
+            # Save group with program
+            group_id = save_group(chat_id, program_id)
+            
+            if group_id:
+                bot.send_message(
+                    chat_id,
+                    (
+                        "✅ *Group Setup Complete!*\n\n"
+                        f"📚 Program: *{program['name']}*\n"
+                        f"🎓 Level: *{program['level']}*\n"
+                        f"🏫 College: *{program['college']}*\n\n"
+                        "You can now share files and I'll track them automatically!\n\n"
+                        "📎 Just upload files with course codes in the filename "
+                        "(e.g., `MAT111_notes.pdf` or `CSC 234 slides.pptx`)"
+                    ),
+                    parse_mode="Markdown"
+                )
+            else:
+                bot.send_message(
+                    chat_id,
+                    "❌ Failed to save group configuration. Please try again.",
+                    parse_mode="Markdown"
+                )
+            
+            # Clean up session
+            group_sessions.pop(chat_id, None)
+            
+        except Exception as e:
+            print(f"ERROR in receive_program_id: {e}")
             bot.send_message(
                 chat_id,
-                "❌ Program ID not found. Please check and try again.",
+                "❌ An error occurred during setup. Please try again with /setupgroup",
                 parse_mode="Markdown"
             )
-            return
-        
-        # Save group with program
-        save_group(chat_id, program_id)
-        
-        bot.send_message(
-            chat_id,
-            (
-                "✅ *Group Setup Complete!*\n\n"
-                f"📚 Program: *{program['name']}*\n"
-                f"🎓 Level: *{program['level']}*\n"
-                f"🏫 College: *{program['college']}*\n\n"
-                "You can now share files and I'll track them automatically!\n\n"
-                "📎 Just upload files with course codes in the filename "
-                "(e.g., `MAT111_notes.pdf` or `CSC 234 slides.pptx`)"
-            ),
-            parse_mode="Markdown"
-        )
-        
-        # Clean up session
-        group_sessions.pop(chat_id, None)
+            # Clear session on error
+            group_sessions.pop(chat_id, None)
     
     # -------------------------
     # Extract Course Code from Filename

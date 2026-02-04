@@ -118,15 +118,23 @@ def start_handler(bot):
             else:
                 bot.send_message(
                     message.chat.id,
-                    "❌ Invalid Program ID. Please try again or use /start to register a new program.",
+                    "❌ Invalid Program ID. Please try again with /start or check the ID.",
                     parse_mode="Markdown"
                 )
                 user_sessions.pop(user_id, None)
                 
-        except (ValueError, Exception) as e:
+        except ValueError:
             bot.send_message(
                 message.chat.id,
                 "❌ Invalid Program ID format. Please enter a valid number or use /start to register.",
+                parse_mode="Markdown"
+            )
+            user_sessions.pop(user_id, None)
+        except Exception as e:
+            print(f"ERROR in verify_program_id: {e}")
+            bot.send_message(
+                message.chat.id,
+                "❌ An error occurred. Please use /start to try again.",
                 parse_mode="Markdown"
             )
             user_sessions.pop(user_id, None)
@@ -204,7 +212,23 @@ def start_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "action:new_program")
     def onboard_new_program(call):
-        start_new_registration(bot, call.message, is_callback=True)
+        user_id = call.from_user.id
+        chat_id = call.message.chat.id
+        
+        # Initialize new user session
+        user_sessions[user_id] = {}
+
+        kb = InlineKeyboardMarkup()
+        levels = ['100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
+        for lvl in levels:
+            kb.add(InlineKeyboardButton(lvl, callback_data=f"level:{lvl}"))
+
+        bot.send_message(
+            chat_id,
+            "👋 Welcome to Stackaiv\n\nSelect your level:",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
 
     # -------------------------
     # Helper: Start New Registration
