@@ -1,5 +1,5 @@
 import os
-import psycopg # type: ignorey
+import psycopg # type: ignore
 from dotenv import load_dotenv
 
 # Load environment variables
