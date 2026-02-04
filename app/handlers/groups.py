@@ -12,8 +12,7 @@ from ..database.queries import (
 )
 
 group_sessions = {}
-# Track files being processed to prevent duplicate handling
-processing_files = {}  # Format: {file_id: chat_id}
+# Sessions are keyed by f"{chat_id}_{message_id}" to support concurrent uploads
 
 def groups_handler(bot):
     
@@ -261,18 +260,6 @@ def groups_handler(bot):
                 )
                 return
             
-            # Initialize/update session for this file
-            # Store session by chat_id only; file_id stored in session dict
-            session_key = str(chat_id)
-            group_sessions[session_key] = {
-                "stage": "awaiting_resource_type",
-                "file_id": file_id,
-                "file_name": filename,
-                "uploader_id": message.from_user.id,
-                "message_id": message.message_id,
-                "chat_id": chat_id
-            }
-            
             # -------------------------
             # Course Code Detected
             # -------------------------
@@ -288,9 +275,6 @@ def groups_handler(bot):
                     course_id = matching_course['id']
                     registered_code = matching_course['course_code']
                     
-                    group_sessions[session_key]["course_id"] = course_id
-                    group_sessions[session_key]["course_code"] = registered_code
-                    
                     kb = InlineKeyboardMarkup()
                     kb.add(
                         InlineKeyboardButton(
@@ -303,12 +287,24 @@ def groups_handler(bot):
                         )
                     )
                     
-                    bot.send_message(
+                    response_msg = bot.send_message(
                         chat_id,
                         f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
                         parse_mode="Markdown",
                         reply_markup=kb
                     )
+                    
+                    # Store session keyed by response message_id for concurrent upload isolation
+                    session_key = f"{chat_id}_{response_msg.message_id}"
+                    group_sessions[session_key] = {
+                        "stage": "awaiting_resource_type",
+                        "file_id": file_id,
+                        "file_name": filename,
+                        "uploader_id": message.from_user.id,
+                        "chat_id": chat_id,
+                        "course_id": course_id,
+                        "course_code": registered_code
+                    }
                 else:
                     # Detected but not registered - show manual selection with warning
                     kb = InlineKeyboardMarkup()
@@ -320,7 +316,7 @@ def groups_handler(bot):
                             )
                         )
                     
-                    bot.send_message(
+                    response_msg = bot.send_message(
                         chat_id,
                         (
                             f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
@@ -329,6 +325,16 @@ def groups_handler(bot):
                         parse_mode="Markdown",
                         reply_markup=kb
                     )
+                    
+                    # Store session keyed by response message_id
+                    session_key = f"{chat_id}_{response_msg.message_id}"
+                    group_sessions[session_key] = {
+                        "stage": "awaiting_resource_type",
+                        "file_id": file_id,
+                        "file_name": filename,
+                        "uploader_id": message.from_user.id,
+                        "chat_id": chat_id
+                    }
             
             # -------------------------
             # No Detection - Ask to select course
@@ -343,16 +349,22 @@ def groups_handler(bot):
                         )
                     )
                 
-                bot.send_message(
+                response_msg = bot.send_message(
                     chat_id,
                     "📚 *Select the course for this file:*",
                     parse_mode="Markdown",
                     reply_markup=kb
                 )
-        
-        finally:
-            # Always clean up processing flag after handling
-            processing_files.pop(file_id, None)
+                
+                # Store session keyed by response message_id
+                session_key = f"{chat_id}_{response_msg.message_id}"
+                group_sessions[session_key] = {
+                    "stage": "awaiting_resource_type",
+                    "file_id": file_id,
+                    "file_name": filename,
+                    "uploader_id": message.from_user.id,
+                    "chat_id": chat_id
+                }
     
     # -------------------------
     # Confirm Detected Course - Yes
@@ -363,14 +375,14 @@ def groups_handler(bot):
         parts = call.data.split(":")
         course_id = int(parts[2])
         
-        session_key = str(chat_id)
+        session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
             return
         
         # Proceed to resource type selection
-        show_resource_types(call.message.chat.id, course_id, call.message.message_id)
+        show_resource_types(chat_id, course_id, call.message.message_id, session_key)
     
     # -------------------------
     # Confirm Detected Course - No (manual selection)
@@ -378,6 +390,13 @@ def groups_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("gconf:no"))
     def confirm_course_no(call):
         chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            return
+        
         program_id = get_group_program_id(chat_id)
         
         if not program_id:
@@ -411,7 +430,7 @@ def groups_handler(bot):
         parts = call.data.split(":")
         course_id = int(parts[1])
         
-        session_key = str(chat_id)
+        session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
@@ -420,12 +439,16 @@ def groups_handler(bot):
         session["course_id"] = course_id
         
         # Proceed to resource type selection
-        show_resource_types(chat_id, course_id, call.message.message_id)
+        show_resource_types(chat_id, course_id, call.message.message_id, session_key)
     
     # -------------------------
     # Show Resource Types
     # -------------------------
-    def show_resource_types(chat_id, course_id, message_id):
+    def show_resource_types(chat_id, course_id, message_id, session_key):
+        session = group_sessions.get(session_key)
+        if not session:
+            return
+        
         resource_types = get_resource_types()
         
         kb = InlineKeyboardMarkup()
@@ -454,7 +477,7 @@ def groups_handler(bot):
         parts = call.data.split(":")
         resource_type_id = int(parts[1])
         
-        session_key = str(chat_id)
+        session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
