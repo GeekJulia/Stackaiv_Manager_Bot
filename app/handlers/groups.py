@@ -12,6 +12,8 @@ from ..database.queries import (
 )
 
 group_sessions = {}
+# Track files being processed to prevent duplicate handling
+processing_files = {}  # Format: {file_id: chat_id}
 
 def groups_handler(bot):
     
@@ -185,112 +187,128 @@ def groups_handler(bot):
     @bot.message_handler(content_types=['document'], func=lambda m: m.chat.type in ['group', 'supergroup'])
     def handle_group_document(message):
         chat_id = message.chat.id
-        
-         # DEBUG: Log everything
-        print(f"Document received in chat: {chat_id}")
-        print(f"Filename: {message.document.file_name}")
-        print(f"Chat type: {message.chat.type}")
-        
-        program_id = get_group_program_id(chat_id)
-        print(f"Program ID: {program_id}")
-        
-        if not program_id:
-            return  # Group not set up, ignore
-        
         doc = message.document
-        filename = doc.file_name or "untitled"
+        file_id = doc.file_id
         
-        # Extract course code
-        course_code, confidence = extract_course_code(filename)
+        # Check if this file is already being processed
+        if file_id in processing_files:
+            return  # Already processing this file
         
-        # Get all courses for this program
-        courses = get_courses_by_program(program_id)
+        # Mark file as being processed
+        processing_files[file_id] = chat_id
         
-        # Initialize session
-        group_sessions[chat_id] = {
-            "stage": "awaiting_resource_type",
-            "file_id": doc.file_id,
-            "file_name": filename,
-            "uploader_id": message.from_user.id,
-            "message_id": message.message_id
-        }
-        
-        # -------------------------
-        # Course Code Detected
-        # -------------------------
-        if course_code:
-            # Check if detected course code is registered (match with or without space)
-            matching_course = None
-            for c in courses:
-                if courses_match(course_code, c['course_code']):
-                    matching_course = c
-                    break
+        try:
+            # DEBUG: Log everything
+            print(f"Document received in chat: {chat_id}")
+            print(f"Filename: {message.document.file_name}")
+            print(f"Chat type: {message.chat.type}")
             
-            if matching_course:
-                course_id = matching_course['id']
-                registered_code = matching_course['course_code']
+            program_id = get_group_program_id(chat_id)
+            print(f"Program ID: {program_id}")
+            
+            if not program_id:
+                return  # Group not set up, ignore
+            
+            filename = doc.file_name or "untitled"
+            
+            # Extract course code
+            course_code, confidence = extract_course_code(filename)
+            
+            # Get all courses for this program
+            courses = get_courses_by_program(program_id)
+            
+            # Initialize/update session for this file
+            # Use a unique key combining chat_id and file_id to handle multiple simultaneous uploads
+            session_key = f"{chat_id}_{file_id}"
+            group_sessions[session_key] = {
+                "stage": "awaiting_resource_type",
+                "file_id": file_id,
+                "file_name": filename,
+                "uploader_id": message.from_user.id,
+                "message_id": message.message_id,
+                "chat_id": chat_id
+            }
+            
+            # -------------------------
+            # Course Code Detected
+            # -------------------------
+            if course_code:
+                # Check if detected course code is registered (match with or without space)
+                matching_course = None
+                for c in courses:
+                    if courses_match(course_code, c['course_code']):
+                        matching_course = c
+                        break
                 
-                group_sessions[chat_id]["course_id"] = course_id
-                group_sessions[chat_id]["course_code"] = registered_code
-                
-                kb = InlineKeyboardMarkup()
-                kb.add(
-                    InlineKeyboardButton(
-                        f"✅ Yes, {registered_code}",
-                        callback_data=f"gconf:yes:{course_id}"
-                    ),
-                    InlineKeyboardButton(
-                        "❌ No, choose manually",
-                        callback_data="gconf:no"
+                if matching_course:
+                    course_id = matching_course['id']
+                    registered_code = matching_course['course_code']
+                    
+                    group_sessions[session_key]["course_id"] = course_id
+                    group_sessions[session_key]["course_code"] = registered_code
+                    
+                    kb = InlineKeyboardMarkup()
+                    kb.add(
+                        InlineKeyboardButton(
+                            f"✅ Yes, {registered_code}",
+                            callback_data=f"gconf:yes:{course_id}:{file_id}"
+                        ),
+                        InlineKeyboardButton(
+                            "❌ No, choose manually",
+                            callback_data=f"gconf:no:{file_id}"
+                        )
                     )
-                )
-                
-                bot.send_message(
-                    chat_id,
-                    f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
-                    parse_mode="Markdown",
-                    reply_markup=kb
-                )
+                    
+                    bot.send_message(
+                        chat_id,
+                        f"📎 Detected course code: *{registered_code}*\n\nIs this correct?",
+                        parse_mode="Markdown",
+                        reply_markup=kb
+                    )
+                else:
+                    # Detected but not registered - show manual selection with warning
+                    kb = InlineKeyboardMarkup()
+                    for c in courses:
+                        kb.add(
+                            InlineKeyboardButton(
+                                c['course_code'],
+                                callback_data=f"gcourse:{c['id']}:{file_id}"
+                            )
+                        )
+                    
+                    bot.send_message(
+                        chat_id,
+                        (
+                            f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
+                            "📚 *Select from your registered courses:*"
+                        ),
+                        parse_mode="Markdown",
+                        reply_markup=kb
+                    )
+            
+            # -------------------------
+            # No Detection - Ask to select course
+            # -------------------------
             else:
-                # Detected but not registered - show manual selection with warning
                 kb = InlineKeyboardMarkup()
                 for c in courses:
                     kb.add(
                         InlineKeyboardButton(
                             c['course_code'],
-                            callback_data=f"gcourse:{c['id']}"
+                            callback_data=f"gcourse:{c['id']}:{file_id}"
                         )
                     )
                 
                 bot.send_message(
                     chat_id,
-                    (
-                        f"⚠️ Detected *{course_code}* but it's not registered in your program.\n\n"
-                        "📚 *Select from your registered courses:*"
-                    ),
+                    "📚 *Select the course for this file:*",
                     parse_mode="Markdown",
                     reply_markup=kb
                 )
         
-        # -------------------------
-        # No Detection - Ask to select course
-        # -------------------------
-        else:
-            kb = InlineKeyboardMarkup()
-            for c in courses:
-                kb.add(
-                    InlineKeyboardButton(
-                        c['course_code'],
-                        callback_data=f"gcourse:{c['id']}"
-                    )
-                )
-            
-            bot.send_message(
-                chat_id,
-                "📚 *Select the course for this file:*",
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
+        finally:
+            # Always clean up processing flag after handling
+            processing_files.pop(file_id, None)
     
     # -------------------------
     # Confirm Detected Course - Yes
@@ -298,22 +316,26 @@ def groups_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("gconf:yes:"))
     def confirm_course_yes(call):
         chat_id = call.message.chat.id
-        course_id = int(call.data.split(":")[2])
+        parts = call.data.split(":")
+        course_id = int(parts[2])
+        file_id = parts[3] if len(parts) > 3 else None
         
-        session = group_sessions.get(chat_id)
+        session_key = f"{chat_id}_{file_id}" if file_id else chat_id
+        session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
             return
         
         # Proceed to resource type selection
-        show_resource_types(call.message.chat.id, course_id, call.message.message_id)
+        show_resource_types(call.message.chat.id, course_id, call.message.message_id, file_id)
     
     # -------------------------
     # Confirm Detected Course - No (manual selection)
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "gconf:no")
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("gconf:no:"))
     def confirm_course_no(call):
         chat_id = call.message.chat.id
+        file_id = call.data.split(":")[2] if len(call.data.split(":")) > 2 else None
         program_id = get_group_program_id(chat_id)
         
         if not program_id:
@@ -326,7 +348,7 @@ def groups_handler(bot):
             kb.add(
                 InlineKeyboardButton(
                     c['course_code'],
-                    callback_data=f"gcourse:{c['id']}"
+                    callback_data=f"gcourse:{c['id']}:{file_id}" if file_id else f"gcourse:{c['id']}"
                 )
             )
         
@@ -344,9 +366,12 @@ def groups_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("gcourse:"))
     def select_course_manual(call):
         chat_id = call.message.chat.id
-        course_id = int(call.data.split(":")[1])
+        parts = call.data.split(":")
+        course_id = int(parts[1])
+        file_id = parts[2] if len(parts) > 2 else None
         
-        session = group_sessions.get(chat_id)
+        session_key = f"{chat_id}_{file_id}" if file_id else chat_id
+        session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
             return
@@ -354,20 +379,21 @@ def groups_handler(bot):
         session["course_id"] = course_id
         
         # Proceed to resource type selection
-        show_resource_types(chat_id, course_id, call.message.message_id)
+        show_resource_types(chat_id, course_id, call.message.message_id, file_id)
     
     # -------------------------
     # Show Resource Types
     # -------------------------
-    def show_resource_types(chat_id, course_id, message_id):
+    def show_resource_types(chat_id, course_id, message_id, file_id=None):
         resource_types = get_resource_types()
         
         kb = InlineKeyboardMarkup()
         for r in resource_types:
+            callback = f"gtype:{r['id']}:{file_id}" if file_id else f"gtype:{r['id']}"
             kb.add(
                 InlineKeyboardButton(
                     r['name'],
-                    callback_data=f"gtype:{r['id']}"
+                    callback_data=callback
                 )
             )
         
@@ -385,16 +411,19 @@ def groups_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("gtype:"))
     def select_resource_type(call):
         chat_id = call.message.chat.id
-        resource_type_id = int(call.data.split(":")[1])
+        parts = call.data.split(":")
+        resource_type_id = int(parts[1])
+        file_id = parts[2] if len(parts) > 2 else None
         
-        session = group_sessions.get(chat_id)
+        session_key = f"{chat_id}_{file_id}" if file_id else chat_id
+        session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
             return
         
         course_id = session["course_id"]
         file_name = session["file_name"]
-        file_id = session["file_id"]
+        file_id_session = session["file_id"]
         uploader_id = session["uploader_id"]
         
         # Check for duplicate
@@ -411,7 +440,7 @@ def groups_handler(bot):
             resource_id = save_resource(
                 course_id=course_id,
                 resource_type_id=resource_type_id,
-                file_id=file_id,
+                file_id=file_id_session,
                 file_name=file_name,
                 uploader_id=uploader_id
             )
@@ -428,5 +457,5 @@ def groups_handler(bot):
                 parse_mode="Markdown"
             )
         
-        # Clean up session
-        group_sessions.pop(chat_id, None)
+        # Clean up session using the same key
+        group_sessions.pop(session_key, None)

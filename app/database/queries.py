@@ -345,8 +345,13 @@ def get_payment_by_reference(reference):
         raise
         return None
 
-def activate_program(program_id):
-    """Mark program as active and create activation record"""
+def activate_program(program_id, is_paid=True):
+    """Mark program as active and create activation record
+    
+    Args:
+        program_id: The program to activate
+        is_paid: Whether this activation was paid (True) or free (False)
+    """
     with conn.cursor() as cursor:
         # Update program is_active status
         cursor.execute("""
@@ -358,8 +363,8 @@ def activate_program(program_id):
         # Create activation record
         cursor.execute("""
             INSERT INTO program_activations (program_id, is_paid)
-            VALUES (%s, TRUE)
-        """, (program_id,))
+            VALUES (%s, %s)
+        """, (program_id, is_paid))
         
         conn.commit()
         return True
@@ -686,4 +691,10 @@ def get_admin_messages_count():
     """Get count of unhandled admin messages"""
     with conn.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) FROM admin_messages WHERE handled = FALSE")
+        return cursor.fetchone()[0]
+
+def count_active_programs():
+    """Count the number of programs with is_active = TRUE"""
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM programs WHERE is_active = TRUE")
         return cursor.fetchone()[0]

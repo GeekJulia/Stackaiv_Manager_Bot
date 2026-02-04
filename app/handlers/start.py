@@ -6,7 +6,9 @@ from ..database.queries import (
     get_program_info,
     check_program_exists,
     get_program_creator,
-    clear_user_program_data
+    clear_user_program_data,
+    count_active_programs,
+    activate_program
 )
 
 user_sessions = {}
@@ -420,33 +422,59 @@ def start_handler(bot):
         )
 
         # Save program
-        save_program(
+        program_id = save_program(
             level=session["level"],
             college=session["college"],
             program_name=program,
             user_id=saved_user_id
         )
 
-        kb = InlineKeyboardMarkup()
-        kb.add(
-            InlineKeyboardButton(
-                "💳 Activate Program & Continue",
-                callback_data="action:activate_program"
+        # Check if this is one of the first 3 programs - if so, auto-activate for free
+        active_count = count_active_programs()
+        
+        if active_count < 3:
+            # Auto-activate this program for free
+            activate_program(program_id, is_paid=False)
+            
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+            kb.add(InlineKeyboardButton("🏠 Back to Hub", callback_data="action:goto_space"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=(
+                    "🎉 *Registration Complete!*\n\n"
+                    f"📘 Program: *{program}*\n\n"
+                    "✅ *Your program has been automatically activated!*\n"
+                    "(You're one of the first 3 programs - enjoying free activation)\n\n"
+                    "You can now add your courses and start sharing resources in your group chat."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
             )
-        )
+        else:
+            # Program needs payment for activation
+            kb = InlineKeyboardMarkup()
+            kb.add(
+                InlineKeyboardButton(
+                    "💳 Activate Program & Continue",
+                    callback_data="action:activate_program"
+                )
+            )
 
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=(
-                "🎉 *Registration Complete!*\n\n"
-                f"📘 Program: *{program}*\n\n"
-                "Your program space has been created.\n\n"
-                "Next, activate your program to enable resource sharing."
-            ),
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=(
+                    "🎉 *Registration Complete!*\n\n"
+                    f"📘 Program: *{program}*\n\n"
+                    "Your program space has been created.\n\n"
+                    "Next, activate your program to enable resource sharing."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
 
         user_sessions.pop(user_id, None)
 
