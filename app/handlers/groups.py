@@ -18,7 +18,7 @@ processing_files = {}  # Format: {file_id: chat_id}
 def groups_handler(bot):
     
     # -------------------------
-    # Bot Added to Group
+    # Bot Added to Group - FIXED
     # -------------------------
     @bot.message_handler(content_types=['new_chat_members'])
     def welcome_to_group(message):
@@ -47,26 +47,24 @@ def groups_handler(bot):
                     parse_mode="Markdown",
                     reply_markup=kb
                 )
+                break  # Only process once if bot is added
     
     # -------------------------
-    # Setup Group Command (GROUP ONLY)
+    # Setup Group Command - FIXED
     # -------------------------
     @bot.message_handler(commands=['setupgroup'])
     def setup_group_command(message):
-        # Check if this is a group chat
+        # Only work in groups
         if message.chat.type not in ['group', 'supergroup']:
             bot.send_message(
                 message.chat.id,
-                "⚠️ *This command is only for group chats*\n\n"
-                "To use this bot:\n"
-                "1. Add me to your program's group chat\n"
-                "2. Run /setupgroup in the group\n"
-                "3. Provide your Program ID (get it from /whoami in private chat)",
+                "❌ *This command is only for group chats!*\n\n"
+                "Please add me to your group chat and use this command there.",
                 parse_mode="Markdown"
             )
             return
         
-        # It's a group - show setup button
+        # In group - show setup button
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
