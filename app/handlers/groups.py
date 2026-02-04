@@ -262,8 +262,8 @@ def groups_handler(bot):
                 return
             
             # Initialize/update session for this file
-            # Use a unique key combining chat_id and file_id to handle multiple simultaneous uploads
-            session_key = f"{chat_id}_{file_id}"
+            # Store session by chat_id only; file_id stored in session dict
+            session_key = str(chat_id)
             group_sessions[session_key] = {
                 "stage": "awaiting_resource_type",
                 "file_id": file_id,
@@ -295,11 +295,11 @@ def groups_handler(bot):
                     kb.add(
                         InlineKeyboardButton(
                             f"✅ Yes, {registered_code}",
-                            callback_data=f"gconf:yes:{course_id}:{file_id}"
+                            callback_data=f"gconf:yes:{course_id}"
                         ),
                         InlineKeyboardButton(
                             "❌ No, choose manually",
-                            callback_data=f"gconf:no:{file_id}"
+                            callback_data="gconf:no"
                         )
                     )
                     
@@ -316,7 +316,7 @@ def groups_handler(bot):
                         kb.add(
                             InlineKeyboardButton(
                                 c['course_code'],
-                                callback_data=f"gcourse:{c['id']}:{file_id}"
+                                callback_data=f"gcourse:{c['id']}"
                             )
                         )
                     
@@ -339,7 +339,7 @@ def groups_handler(bot):
                     kb.add(
                         InlineKeyboardButton(
                             c['course_code'],
-                            callback_data=f"gcourse:{c['id']}:{file_id}"
+                            callback_data=f"gcourse:{c['id']}"
                         )
                     )
                 
@@ -362,24 +362,22 @@ def groups_handler(bot):
         chat_id = call.message.chat.id
         parts = call.data.split(":")
         course_id = int(parts[2])
-        file_id = parts[3] if len(parts) > 3 else None
         
-        session_key = f"{chat_id}_{file_id}" if file_id else chat_id
+        session_key = str(chat_id)
         session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
             return
         
         # Proceed to resource type selection
-        show_resource_types(call.message.chat.id, course_id, call.message.message_id, file_id)
+        show_resource_types(call.message.chat.id, course_id, call.message.message_id)
     
     # -------------------------
     # Confirm Detected Course - No (manual selection)
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data.startswith("gconf:no:"))
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("gconf:no"))
     def confirm_course_no(call):
         chat_id = call.message.chat.id
-        file_id = call.data.split(":")[2] if len(call.data.split(":")) > 2 else None
         program_id = get_group_program_id(chat_id)
         
         if not program_id:
@@ -392,7 +390,7 @@ def groups_handler(bot):
             kb.add(
                 InlineKeyboardButton(
                     c['course_code'],
-                    callback_data=f"gcourse:{c['id']}:{file_id}" if file_id else f"gcourse:{c['id']}"
+                    callback_data=f"gcourse:{c['id']}"
                 )
             )
         
@@ -412,9 +410,8 @@ def groups_handler(bot):
         chat_id = call.message.chat.id
         parts = call.data.split(":")
         course_id = int(parts[1])
-        file_id = parts[2] if len(parts) > 2 else None
         
-        session_key = f"{chat_id}_{file_id}" if file_id else chat_id
+        session_key = str(chat_id)
         session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
@@ -423,21 +420,20 @@ def groups_handler(bot):
         session["course_id"] = course_id
         
         # Proceed to resource type selection
-        show_resource_types(chat_id, course_id, call.message.message_id, file_id)
+        show_resource_types(chat_id, course_id, call.message.message_id)
     
     # -------------------------
     # Show Resource Types
     # -------------------------
-    def show_resource_types(chat_id, course_id, message_id, file_id=None):
+    def show_resource_types(chat_id, course_id, message_id):
         resource_types = get_resource_types()
         
         kb = InlineKeyboardMarkup()
         for r in resource_types:
-            callback = f"gtype:{r['id']}:{file_id}" if file_id else f"gtype:{r['id']}"
             kb.add(
                 InlineKeyboardButton(
                     r['name'],
-                    callback_data=callback
+                    callback_data=f"gtype:{r['id']}"
                 )
             )
         
@@ -457,9 +453,8 @@ def groups_handler(bot):
         chat_id = call.message.chat.id
         parts = call.data.split(":")
         resource_type_id = int(parts[1])
-        file_id = parts[2] if len(parts) > 2 else None
         
-        session_key = f"{chat_id}_{file_id}" if file_id else chat_id
+        session_key = str(chat_id)
         session = group_sessions.get(session_key)
         if not session:
             bot.answer_callback_query(call.id, "Session expired", show_alert=True)
