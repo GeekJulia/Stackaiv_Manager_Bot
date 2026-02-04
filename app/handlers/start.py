@@ -8,7 +8,9 @@ from ..database.queries import (
     get_program_creator,
     clear_user_program_data,
     count_active_programs,
-    activate_program
+    activate_program,
+    user_has_program,
+    get_user_program_info
 )
 
 user_sessions = {}
@@ -215,6 +217,31 @@ def start_handler(bot):
         user_id = call.from_user.id
         chat_id = call.message.chat.id
         
+        # ✅ Check if user already has a program
+        if user_has_program(user_id):
+            existing_program = get_user_program_info(user_id)
+            
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+            kb.add(InlineKeyboardButton("🔄 Re-register", callback_data="hub:reregister"))
+            
+            bot.send_message(
+                chat_id,
+                (
+                    "⚠️ *You Already Have a Registered Program*\n\n"
+                    f"📘 Program: *{existing_program['program_name']}*\n"
+                    f"🏫 College: *{existing_program['college']}*\n"
+                    f"📊 Level: *{existing_program['level']}*\n"
+                    f"🆔 Program ID: `{existing_program['id']}`\n\n"
+                    "You can only register one program per account.\n\n"
+                    "If you need to access a different program, please use the Program ID "
+                    "to go to that program's space, or contact support if you need to change your program."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            return
+        
         # Initialize new user session
         user_sessions[user_id] = {}
 
@@ -236,18 +263,23 @@ def start_handler(bot):
     @bot.message_handler(commands=['whoami'])
     def whoami(message):
         user_id = message.from_user.id
-        try:
-            program_id = get_user_program_id(user_id)
+        program_id = get_user_program_id(user_id)
+        
+        if program_id:
+            program_info = get_program_info(program_id)
             bot.send_message(
                 message.chat.id,
                 f"ℹ️ <b>Your Info</b>\n\n"
                 f"👤 Username: @{message.from_user.username or 'N/A'}\n"
-                f"📱 Telegram ID: <code>{user_id}</code>\n"
-                f"🎓 Program ID: <code>{program_id}</code>\n\n"
+                f"📱 Telegram ID: <code>{user_id}</code>\n\n"
+                f"📘 Program: <b>{program_info['program_name']}</b>\n"
+                f"🏫 College: {program_info['college']}\n"
+                f"📊 Level: {program_info['level']}\n"
+                f"🆔 Program ID: <code>{program_id}</code>\n\n"
                 f"Use this Program ID with /setupgroup in your group chat",
                 parse_mode="HTML"
             )
-        except Exception as e:
+        else:
             bot.send_message(
                 message.chat.id,
                 "❌ Not registered yet.\n\nRun /start to complete registration.",
@@ -261,6 +293,30 @@ def start_handler(bot):
     def handle_level(call):
         user_id = call.from_user.id
         level = call.data.split(":")[1]
+
+        # ✅ Check if user already has a program (safety check)
+        if user_has_program(user_id):
+            existing_program = get_user_program_info(user_id)
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+            
+            bot.answer_callback_query(
+                call.id,
+                "You already have a registered program!",
+                show_alert=True
+            )
+            bot.send_message(
+                call.message.chat.id,
+                (
+                    "⚠️ *You Already Have a Registered Program*\n\n"
+                    f"📘 Program: *{existing_program['program_name']}*\n"
+                    f"🆔 Program ID: `{existing_program['id']}`\n\n"
+                    "Please go to your program space instead."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            return
 
         # ✅ Check if session exists
         if user_id not in user_sessions:
@@ -383,7 +439,31 @@ def start_handler(bot):
         user_sessions[user_id]["program"] = program
         session = user_sessions.get(user_id)
 
-        # Check if program already exists
+        # ✅ Final safety check - ensure user doesn't already have a program
+        if user_has_program(user_id):
+            existing_program = get_user_program_info(user_id)
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=(
+                    "⚠️ *You Already Have a Registered Program*\n\n"
+                    f"📘 Program: *{existing_program['program_name']}*\n"
+                    f"🏫 College: *{existing_program['college']}*\n"
+                    f"📊 Level: *{existing_program['level']}*\n"
+                    f"🆔 Program ID: `{existing_program['id']}`\n\n"
+                    "You can only register one program per account.\n\n"
+                    "Please go to your program space instead."
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            user_sessions.pop(user_id, None)
+            return
+
+        # Check if program already exists (created by someone else)
         existing_program = check_program_exists(
             level=session["level"],
             college=session["college"],
@@ -391,28 +471,58 @@ def start_handler(bot):
         )
 
         if existing_program:
-            # Program exists - get creator info
+            # Program exists - check if it's created by this user or someone else
             creator = get_program_creator(existing_program['id'])
-            
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
-            kb.add(InlineKeyboardButton("🔙 Back to Start", callback_data="action:back_to_start"))
-            
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=(
-                    f"ℹ️ *Program Already Exists*\n\n"
-                    f"📘 Program: *{program}*\n"
-                    f"🏫 College: *{session['college']}*\n"
-                    f"📊 Level: *{session['level']}*\n\n"
-                    f"👤 Created by: @{creator['username'] or 'N/A'}\n"
-                    f"🆔 Program ID: `{existing_program['id']}`\n\n"
-                    f"Use this Program ID to access your program space."
-                ),
-                parse_mode="Markdown",
-                reply_markup=kb
+            current_user_id = save_user(
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name
             )
+            
+            # If program was created by this user, show their program info
+            if existing_program['user_id'] == current_user_id:
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+                kb.add(InlineKeyboardButton("🔄 Re-register", callback_data="hub:reregister"))
+                
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=(
+                        "ℹ️ *This is Your Program*\n\n"
+                        f"📘 Program: *{program}*\n"
+                        f"🏫 College: *{session['college']}*\n"
+                        f"📊 Level: *{session['level']}*\n"
+                        f"🆔 Program ID: `{existing_program['id']}`\n\n"
+                        "This program is already registered to your account.\n"
+                        "You can go to your program space or re-register if needed."
+                    ),
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
+            else:
+                # Program exists but was created by someone else
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
+                kb.add(InlineKeyboardButton("🔙 Back to Start", callback_data="action:back_to_start"))
+                
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=(
+                        "ℹ️ *Program Already Registered*\n\n"
+                        f"📘 Program: *{program}*\n"
+                        f"🏫 College: *{session['college']}*\n"
+                        f"📊 Level: *{session['level']}*\n\n"
+                        "This program has already been registered by someone else.\n\n"
+                        "💡 *What to do:*\n"
+                        "Ask your course representative or classmate for the **Program ID**.\n"
+                        "Then use that Program ID to access the program space.\n\n"
+                        f"👤 Program created by: @{creator['username'] or 'N/A'}"
+                    ),
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
             
             user_sessions.pop(user_id, None)
             return

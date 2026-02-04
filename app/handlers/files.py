@@ -10,7 +10,8 @@ from ..database.queries import (
     get_resources_by_course_and_type,
     get_course_info,
     check_duplicate_resource_by_type,
-    save_resource_with_type_check
+    save_resource_with_type_check,
+    save_admin_message,
 )
 
 file_sessions = {}
@@ -96,9 +97,20 @@ def files_handler(bot):
     def receive_admin_message(message):
         user_id = message.from_user.id
         user_message = message.text.strip()
-        
-        # Note: In a real implementation, this would be sent to admin
-        # For now, we'll just acknowledge it
+
+        # Persist message so admin can see it in the panel
+        try:
+            save_admin_message(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                message_text=user_message,
+                message_type="general",
+            )
+        except Exception as e:
+            # Don't break user flow if saving fails
+            print(f"ERROR saving admin message: {e}")
+
         bot.send_message(
             message.chat.id,
             "✅ *Message Received*\n\n"

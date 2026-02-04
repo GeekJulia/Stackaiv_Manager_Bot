@@ -22,20 +22,8 @@ def admin_handler(bot):
     Command: /admin7105
     """
 
-    @bot.message_handler(commands=['admin7105'])
-    def admin_command(message):
-        user_id = message.from_user.id
-        
-        # Security check - only allow admin
-        if user_id != ADMIN_ID:
-            bot.send_message(
-                message.chat.id,
-                "❌ *Unauthorized Access*\n\n"
-                "This command is restricted to administrators only.",
-                parse_mode="Markdown"
-            )
-            return
-        
+    def _send_admin_panel(chat_id):
+        """Helper to render the admin control panel (used by command and callbacks)."""
         kb = InlineKeyboardMarkup(row_width=2)
         kb.add(
             InlineKeyboardButton("📊 Transactions", callback_data="admin:list_transactions"),
@@ -53,9 +41,9 @@ def admin_handler(bot):
             InlineKeyboardButton("👥 List Users", callback_data="admin:list_users"),
             InlineKeyboardButton("🛑 Stop Bot", callback_data="admin:stop_bot")
         )
-        
+
         bot.send_message(
-            message.chat.id,
+            chat_id,
             (
                 "👨‍💼 *Admin Control Panel*\n\n"
                 "Welcome back, Administrator.\n"
@@ -65,56 +53,95 @@ def admin_handler(bot):
             reply_markup=kb
         )
 
+    @bot.message_handler(commands=['admin7105'])
+    def admin_command(message):
+        user_id = message.from_user.id
+        
+        # Security check - only allow admin
+        if user_id != ADMIN_ID:
+            bot.send_message(
+                message.chat.id,
+                "❌ *Unauthorized Access*\n\n"
+                "This command is restricted to administrators only.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        _send_admin_panel(message.chat.id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "admin:panel")
+    def admin_panel_callback(call):
+        """Allow returning to the admin panel via inline button."""
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+        _send_admin_panel(call.message.chat.id)
+
     # -------------------------
     # LIST ALL TRANSACTIONS
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "admin:list_transactions")
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_transactions"))
     def list_transactions(call):
         try:
             transactions = get_all_transactions()
             
-            if not transactions:
-                bot.send_message(
+            total = len(transactions)
+            if not total:
+                bot.edit_message_text(
+                    "📊 *Transactions*\n\nNo transactions found.",
                     call.message.chat.id,
-                    "📊 *Transactions*\n\n"
-                    "No transactions found.",
+                    call.message.message_id,
                     parse_mode="Markdown"
                 )
                 return
+
+            # Determine page from callback data
+            parts = call.data.split(":")
+            page = int(parts[2]) if len(parts) > 2 else 0
+            page_size = 10
+            total_pages = (total + page_size - 1) // page_size
+            page = max(0, min(page, total_pages - 1))
+
+            # Slice the transactions (most recent first)
+            recent = transactions[-100:] if total > 100 else transactions
+            start = page * page_size
+            end = start + page_size
+            page_items = recent[start:end]
+
+            text = f"📊 *Recent Transactions* (Page {page + 1}/{total_pages})\n\n"
             
-            # Send in chunks to avoid message too long error
-            text = "📊 *Recent Transactions*\n\n"
-            
-            for t in transactions[-100:]:  # Show last 100 transactions
+            for t in page_items:
                 status = "✅ Success" if t['status'] == 'success' else "⏳ Pending"
-                # Format amount properly (amount is in kobo, divide by 100 to get naira)
-                amount_naira = int(t['amount'] / 100) if isinstance(t['amount'], (int, float)) else 0
+                # Amount in DB is stored in naira
+                amount_naira = int(t['amount']) if isinstance(t['amount'], (int, float)) else 0
                 date = str(t.get('created_at', 'N/A'))[:10]  # Just the date portion
                 
-                entry = (
+                text += (
                     f"*ID:* {t['id']} | *Status:* {status}\n"
+                    f"*Reference:* `{t['reference']}`\n"
                     f"*Amount:* ₦{amount_naira:,} | *Program:* {t['program_id']}\n"
                     f"*Date:* {date}\n"
                     f"──────────────────\n"
                 )
-                
-                # Send in chunks to avoid 4096 char limit
-                if len(text) + len(entry) > 3500:
-                    bot.send_message(
-                        call.message.chat.id,
-                        text,
-                        parse_mode="Markdown"
-                    )
-                    text = ""
-                
-                text += entry
-            
-            if text:
-                bot.send_message(
-                    call.message.chat.id,
-                    text,
-                    parse_mode="Markdown"
-                )
+
+            # Build pagination keyboard
+            kb = InlineKeyboardMarkup()
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_transactions:{page - 1}"))
+            if end < len(recent):
+                nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_transactions:{page + 1}"))
+            if nav_buttons:
+                kb.add(*nav_buttons)
+            kb.add(InlineKeyboardButton("🏠 Admin Panel", callback_data="admin:panel"))
+
+            bot.edit_message_text(
+                text,
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
         
         except Exception as e:
             bot.send_message(
@@ -186,24 +213,34 @@ def admin_handler(bot):
     # -------------------------
     # LIST ALL PROGRAMS
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "admin:list_programs")
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_programs"))
     def list_programs(call):
         try:
             programs = get_all_programs()
             
-            if not programs:
-                bot.send_message(
+            total = len(programs)
+            if not total:
+                bot.edit_message_text(
+                    "🏫 *Programs*\n\nNo programs found.",
                     call.message.chat.id,
-                    "🏫 *Programs*\n\n"
-                    "No programs found.",
+                    call.message.message_id,
                     parse_mode="Markdown"
                 )
                 return
+
+            parts = call.data.split(":")
+            page = int(parts[2]) if len(parts) > 2 else 0
+            page_size = 10
+            total_pages = (total + page_size - 1) // page_size
+            page = max(0, min(page, total_pages - 1))
+
+            start = page * page_size
+            end = start + page_size
+            page_items = programs[start:end]
+
+            text = f"🏫 *All Programs* (Page {page + 1}/{total_pages})\n\n"
             
-            # Send in chunks due to message size limits
-            text = "🏫 *All Programs*\n\n"
-            
-            for p in programs:
+            for p in page_items:
                 status = "✅ Active" if p['is_active'] else "⏳ Inactive"
                 text += (
                     f"ID: `{p['id']}`\n"
@@ -213,22 +250,24 @@ def admin_handler(bot):
                     f"Status: {status}\n"
                     f"─" * 40 + "\n"
                 )
-                
-                # Send in chunks to avoid message size limit
-                if len(text) > 3500:
-                    bot.send_message(
-                        call.message.chat.id,
-                        text,
-                        parse_mode="Markdown"
-                    )
-                    text = ""
-            
-            if text:
-                bot.send_message(
-                    call.message.chat.id,
-                    text,
-                    parse_mode="Markdown"
-                )
+
+            kb = InlineKeyboardMarkup()
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_programs:{page - 1}"))
+            if end < total:
+                nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_programs:{page + 1}"))
+            if nav_buttons:
+                kb.add(*nav_buttons)
+            kb.add(InlineKeyboardButton("🏠 Admin Panel", callback_data="admin:panel"))
+
+            bot.edit_message_text(
+                text,
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
         
         except Exception as e:
             bot.send_message(
@@ -347,44 +386,58 @@ def admin_handler(bot):
     # -------------------------
     # LIST ALL USERS
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "admin:list_users")
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_users"))
     def list_users(call):
         try:
             users = get_all_users()
             
-            if not users:
-                bot.send_message(
+            total = len(users)
+            if not total:
+                bot.edit_message_text(
+                    "👥 *Users*\n\nNo users found.",
                     call.message.chat.id,
-                    "👥 *Users*\n\n"
-                    "No users found.",
+                    call.message.message_id,
                     parse_mode="Markdown"
                 )
                 return
+
+            parts = call.data.split(":")
+            page = int(parts[2]) if len(parts) > 2 else 0
+            page_size = 15
+            total_pages = (total + page_size - 1) // page_size
+            page = max(0, min(page, total_pages - 1))
+
+            start = page * page_size
+            end = start + page_size
+            page_items = users[start:end]
+
+            text = f"👥 *All Users* (Page {page + 1}/{total_pages})\n\n"
+            text += f"Total Users: {total}\n\n"
             
-            text = "👥 *All Users*\n\n"
-            text += f"Total Users: {len(users)}\n\n"
-            
-            for u in users[-100:]:  # Show last 100 users
+            for u in page_items:
                 text += (
                     f"ID: {u['id']} | Telegram: {u['telegram_id']}\n"
                     f"Name: {u['first_name']} | Username: @{u['username']}\n"
                     f"─" * 40 + "\n"
                 )
-                
-                if len(text) > 3500:
-                    bot.send_message(
-                        call.message.chat.id,
-                        text,
-                        parse_mode="Markdown"
-                    )
-                    text = ""
             
-            if text:
-                bot.send_message(
-                    call.message.chat.id,
-                    text,
-                    parse_mode="Markdown"
-                )
+            kb = InlineKeyboardMarkup()
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_users:{page - 1}"))
+            if end < total:
+                nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_users:{page + 1}"))
+            if nav_buttons:
+                kb.add(*nav_buttons)
+            kb.add(InlineKeyboardButton("🏠 Admin Panel", callback_data="admin:panel"))
+
+            bot.edit_message_text(
+                text,
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
         
         except Exception as e:
             bot.send_message(

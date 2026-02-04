@@ -50,6 +50,7 @@ def save_program(level, college, program_name, user_id):
         return cursor.fetchone()[0]
     
 def get_user_program_id(telegram_id):
+    """Get program ID for a user, returns None if user has no program"""
     with conn.cursor() as cursor:
         cursor.execute("""
             SELECT p.id
@@ -57,7 +58,19 @@ def get_user_program_id(telegram_id):
             JOIN users u ON p.created_by = u.id
             WHERE u.telegram_id = %s
         """, (telegram_id,))
-        return cursor.fetchone()[0]
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+def user_has_program(telegram_id):
+    """Check if a user already has a registered program"""
+    return get_user_program_id(telegram_id) is not None
+
+def get_user_program_info(telegram_id):
+    """Get full program information for a user"""
+    program_id = get_user_program_id(telegram_id)
+    if program_id:
+        return get_program_info(program_id, include_user_id=False)
+    return None
 
 
 def save_courses(program_id, course_codes):
@@ -515,12 +528,13 @@ def get_transaction_by_id(transaction_id):
         return None
 
 def get_all_users():
-    """Get all telegram users"""
+    """Get all telegram users (deduplicated by telegram_id)"""
     with conn.cursor() as cursor:
+        # DISTINCT ON ensures one row per telegram_id (latest by created_at)
         cursor.execute("""
-            SELECT id, telegram_id, username, first_name
+            SELECT DISTINCT ON (telegram_id) id, telegram_id, username, first_name
             FROM users
-            ORDER BY created_at DESC
+            ORDER BY telegram_id, created_at DESC
         """)
         return [
             {
