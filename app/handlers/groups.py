@@ -49,24 +49,37 @@ def groups_handler(bot):
                 )
     
     # -------------------------
-    # Setup Group Command
+    # Setup Group Command (GROUP ONLY)
     # -------------------------
     @bot.message_handler(commands=['setupgroup'])
     def setup_group_command(message):
-        if message.chat.type in ['group', 'supergroup']:
-            kb = InlineKeyboardMarkup()
-            kb.add(
-                InlineKeyboardButton(
-                    "🔧 Setup Group",
-                    callback_data="group:setup"
-                )
-            )
-            
+        # Check if this is a group chat
+        if message.chat.type not in ['group', 'supergroup']:
             bot.send_message(
                 message.chat.id,
-                "Click the button below to begin setup:",
-                reply_markup=kb
+                "⚠️ *This command is only for group chats*\n\n"
+                "To use this bot:\n"
+                "1. Add me to your program's group chat\n"
+                "2. Run /setupgroup in the group\n"
+                "3. Provide your Program ID (get it from /whoami in private chat)",
+                parse_mode="Markdown"
             )
+            return
+        
+        # It's a group - show setup button
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton(
+                "🔧 Setup Group",
+                callback_data="group:setup"
+            )
+        )
+        
+        bot.send_message(
+            message.chat.id,
+            "Click the button below to begin setup:",
+            reply_markup=kb
+        )
     
     # -------------------------
     # Setup Group - Request Program ID
