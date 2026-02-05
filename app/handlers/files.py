@@ -546,6 +546,8 @@ def files_handler(bot):
     # -------------------------
     # GET RESOURCE → SLOT SYSTEM
     # -------------------------
+# In files.py, modify the list_slots function:
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("get:type:"))
     def list_slots(call):
         user_id = call.from_user.id
@@ -564,11 +566,12 @@ def files_handler(bot):
             session["course_id"], res_type_id
         )
 
-        # Build text - use plain Markdown for better compatibility
+        # Build text - escape all dynamic content
         text = "📁 *Available Resources*\n\n"
         for i, r in enumerate(resources, start=1):
-            # Show filenames plain without backticks to avoid parsing issues
-            text += f"Slot {i} | {r['file_name']}\n"
+            # Escape the filename to prevent Markdown parsing issues
+            escaped_filename = escape_markdown(r['file_name'])
+            text += f"Slot {i} | {escaped_filename}\n"
         
         text += (
             "\n\n📥 *Send:*\n"
@@ -579,8 +582,7 @@ def files_handler(bot):
 
         session["resources"] = resources
 
-        # Replace the resource type selection message with the slot list
-        # Use regular Markdown with error handling
+        # Send with error handling
         try:
             safe_edit_or_send(
                 bot,
@@ -591,12 +593,23 @@ def files_handler(bot):
             )
         except Exception as e:
             print(f"ERROR sending slot list: {e}")
-            # Fallback: send without markdown
+            # If Markdown fails, send as plain text
+            plain_text = "📁 Available Resources\n\n"
+            for i, r in enumerate(resources, start=1):
+                plain_text += f"Slot {i} | {r['file_name']}\n"
+            
+            plain_text += (
+                "\n\n📥 Send:\n"
+                "• Slot 1\n"
+                "• Slot 1, Slot 2, Slot 3 (comma-separated)\n"
+                "• All"
+            )
+            
             safe_edit_or_send(
                 bot,
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text=text.replace("*", ""),
+                text=plain_text,
             )
 
     # -------------------------
