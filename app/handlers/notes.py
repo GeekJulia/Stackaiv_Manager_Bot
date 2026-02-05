@@ -7,6 +7,7 @@ from ..database.queries import (
     get_resource_types,
     save_course_resource_types
 )
+from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 
 notes_sessions = {}
 
@@ -15,6 +16,23 @@ def notes_handler(bot):
     Handles course registration and resource type selection.
     Flow: add_courses_info → receive_courses → confirm_courses → select_resources → confirm_resources → submit
     """
+    
+    def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
+        """Send a loading message and return its message_id"""
+        msg = bot.send_message(chat_id, text, parse_mode="Markdown")
+        return msg.message_id
+    
+    def edit_message_safe(bot, chat_id, message_id, text, **kwargs):
+        """Safely edit a message or send new if edit fails"""
+        try:
+            bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                **kwargs
+            )
+        except:
+            bot.send_message(chat_id, text, **kwargs)
 
     # -------------------------
     # Start Notes/Courses Handler
@@ -25,16 +43,18 @@ def notes_handler(bot):
         user_id = call.from_user.id
         message_id = call.message.message_id
         
+        # Show loading indicator
+        loading_msg_id = send_loading_message(
+            bot,
+            call.message.chat.id,
+            "⏳ *Loading your courses...*"
+        )
+        
         try:
-            # Show loading indicator
-            loading_msg = bot.send_message(
-                call.message.chat.id,
-                "⏳ *Loading your courses...*",
-                parse_mode="Markdown"
-            )
-            
-            program_id = get_user_program_id(user_id)
-            courses = get_courses_by_program(program_id)
+            program_id = safe_db_operation(get_user_program_id, None, user_id)
+            courses = []
+            if program_id:
+                courses = safe_db_operation(get_courses_by_program, [], program_id)
             
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton("➕ Add New Courses", callback_data="notes:add_courses"))
@@ -49,33 +69,33 @@ def notes_handler(bot):
             else:
                 message_text = "📚 *You haven't added any courses yet.*\n\nAdd courses to get started!"
             
-            # Delete loading message
-            try:
-                bot.delete_message(call.message.chat.id, loading_msg.message_id)
-            except:
-                pass
-            
-            try:
-                bot.edit_message_text(
-                    message_text,
-                    call.message.chat.id,
-                    message_id,
-                    parse_mode="Markdown",
-                    reply_markup=kb
-                )
-            except:
-                bot.send_message(
-                    call.message.chat.id,
-                    message_text,
-                    parse_mode="Markdown",
-                    reply_markup=kb
-                )
-        except Exception as e:
-            bot.send_message(
+            # Edit loading message with content
+            edit_message_safe(
+                bot,
                 call.message.chat.id,
+                loading_msg_id,
+                message_text,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
                 f"❌ Error: {str(e)}",
                 parse_mode="Markdown"
             )
+
 
     # -------------------------
     # Add Courses Info
@@ -178,18 +198,28 @@ def notes_handler(bot):
             return
 
         course_codes = session["pending_courses"]
-        program_id = get_user_program_id(user_id)
-
+        
+        # Show processing message
+        loading_msg_id = send_loading_message(
+            bot,
+            call.message.chat.id,
+            "⏳ *Saving courses...*"
+        )
+        
         try:
-            # Show processing message
-            loading_msg = bot.send_message(
-                call.message.chat.id,
-                "⏳ *Saving courses...*",
-                parse_mode="Markdown"
-            )
+            program_id = safe_db_operation(get_user_program_id, None, user_id)
+            if not program_id:
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    "❌ Program not found. Please start over.",
+                    parse_mode="Markdown"
+                )
+                return
             
             # Save courses to database
-            course_ids = save_courses(program_id, course_codes)
+            course_ids = safe_db_operation(save_courses, [], program_id, course_codes)
 
             notes_sessions[user_id] = {
                 "stage": "select_resources",
@@ -199,18 +229,22 @@ def notes_handler(bot):
                 "message_id": message_id
             }
 
-            # Delete loading message
-            try:
-                bot.delete_message(call.message.chat.id, loading_msg.message_id)
-            except:
-                pass
+            # Edit loading message to show resource types
+            show_resource_checkboxes(bot, call.message.chat.id, user_id, loading_msg_id)
 
-            # Show resource types with checkbox interface
-            show_resource_checkboxes(bot, call.message.chat.id, user_id)
-
-        except Exception as e:
-            bot.send_message(
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
                 call.message.chat.id,
+                loading_msg_id,
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
                 f"❌ Error saving courses: {str(e)}",
                 parse_mode="Markdown"
             )
@@ -249,10 +283,31 @@ def notes_handler(bot):
     # -------------------------
     # Helper: Show Resource Type Checkboxes
     # -------------------------
-    def show_resource_checkboxes(bot, chat_id, user_id):
+    def show_resource_checkboxes(bot, chat_id, user_id, message_id=None):
         """Display resource types as a checkbox list with better UI"""
         session = notes_sessions.get(user_id, {})
-        resource_types = get_resource_types()
+        
+        try:
+            resource_types = safe_db_operation(get_resource_types, [])
+            if not resource_types:
+                edit_message_safe(
+                    bot,
+                    chat_id,
+                    message_id or session.get("message_id"),
+                    "❌ No resource types available. Please contact support.",
+                    parse_mode="Markdown"
+                )
+                return
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
+                chat_id,
+                message_id or session.get("message_id"),
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+            return
+        
         selected = session.get("selected_resources", set())
 
         # Create checkbox display
@@ -278,15 +333,14 @@ def notes_handler(bot):
         kb.add(InlineKeyboardButton("✅ Done Selecting", callback_data="notes:confirm_resources"))
         kb.add(InlineKeyboardButton("⬅️ Back", callback_data="notes:start"))
 
-        try:
-            bot.send_message(
-                chat_id,
-                message_text,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-        except:
-            pass
+        edit_message_safe(
+            bot,
+            chat_id,
+            message_id or session.get("message_id"),
+            message_text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
 
     # -------------------------
     # Toggle Resource Selection

@@ -11,6 +11,7 @@ from ..database.queries import (
     check_duplicate_resource,
     save_approval
 )
+from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 
 group_sessions = {}
 # Sessions are keyed by f"{chat_id}_{message_id}" to support concurrent uploads
@@ -21,6 +22,23 @@ batch_timers = {}  # {chat_id: threading.Timer}
 batch_messages = {}  # {chat_id: message_id} - stores the batch prompt message_id
 
 def groups_handler(bot):
+    
+    def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
+        """Send a loading message and return its message_id"""
+        msg = bot.send_message(chat_id, text, parse_mode="Markdown")
+        return msg.message_id
+    
+    def edit_message_safe(bot, chat_id, message_id, text, **kwargs):
+        """Safely edit a message or send new if edit fails"""
+        try:
+            bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                **kwargs
+            )
+        except:
+            bot.send_message(chat_id, text, **kwargs)
     
     # -------------------------
     # Bot Added to Group - FIXED
@@ -120,11 +138,20 @@ def groups_handler(bot):
     def receive_program_id(message):
         chat_id = message.chat.id
         
+        # Send loading message
+        loading_msg_id = send_loading_message(
+            bot,
+            chat_id,
+            "⏳ *Setting up group...*"
+        )
+        
         try:
             program_id = int(message.text.strip())
         except ValueError:
-            bot.send_message(
+            edit_message_safe(
+                bot,
                 chat_id,
+                loading_msg_id,
                 "❌ Invalid Program ID. Please send a valid number.",
                 parse_mode="Markdown"
             )
@@ -132,11 +159,13 @@ def groups_handler(bot):
         
         try:
             # Verify program exists
-            program = get_program_info(program_id)
+            program = safe_db_operation(get_program_info, None, program_id)
             
             if not program:
-                bot.send_message(
+                edit_message_safe(
+                    bot,
                     chat_id,
+                    loading_msg_id,
                     "❌ Program ID not found. Please check and try again.",
                     parse_mode="Markdown"
                 )
@@ -145,11 +174,13 @@ def groups_handler(bot):
                 return
             
             # Save group with program
-            group_id = save_group(chat_id, program_id)
+            group_id = safe_db_operation(save_group, None, chat_id, program_id)
             
             if group_id:
-                bot.send_message(
+                edit_message_safe(
+                    bot,
                     chat_id,
+                    loading_msg_id,
                     (
                         "✅ *Group Setup Complete!*\n\n"
                         f"📚 Program: *{program['program_name']}*\n"
@@ -162,8 +193,10 @@ def groups_handler(bot):
                     parse_mode="Markdown"
                 )
             else:
-                bot.send_message(
+                edit_message_safe(
+                    bot,
                     chat_id,
+                    loading_msg_id,
                     "❌ Failed to save group configuration. Please try again.",
                     parse_mode="Markdown"
                 )
@@ -171,10 +204,22 @@ def groups_handler(bot):
             # Clean up session
             group_sessions.pop(chat_id, None)
             
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
+                chat_id,
+                loading_msg_id,
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+            # Clear session on error
+            group_sessions.pop(chat_id, None)
         except Exception as e:
             print(f"ERROR in receive_program_id: {e}")
-            bot.send_message(
+            edit_message_safe(
+                bot,
                 chat_id,
+                loading_msg_id,
                 "❌ An error occurred during setup. Please try again with /setupgroup",
                 parse_mode="Markdown"
             )
@@ -225,20 +270,28 @@ def groups_handler(bot):
         
         print(f"Document queued: {filename} (chat: {chat_id})")
         
-        program_id = get_group_program_id(chat_id)
-        if not program_id:
+        try:
+            program_id = safe_db_operation(get_group_program_id, None, chat_id)
+            if not program_id:
+                bot.send_message(
+                    chat_id,
+                    "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            courses = safe_db_operation(get_courses_by_program, [], program_id)
+            if not courses:
+                bot.send_message(
+                    chat_id,
+                    "⚠️ No courses are registered for this program yet. Please register courses in the program before uploading files.",
+                    parse_mode="Markdown"
+                )
+                return
+        except DatabaseTimeoutError:
             bot.send_message(
                 chat_id,
-                "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        courses = get_courses_by_program(program_id)
-        if not courses:
-            bot.send_message(
-                chat_id,
-                "⚠️ No courses are registered for this program yet. Please register courses in the program before uploading files.",
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
                 parse_mode="Markdown"
             )
             return
@@ -628,31 +681,48 @@ def groups_handler(bot):
             bot.answer_callback_query(call.id, "Queue is empty", show_alert=True)
             return
         
+        # Send processing message
+        processing_msg_id = send_loading_message(
+            bot,
+            chat_id,
+            f"⏳ *Processing {len(queue)} file(s)...*"
+        )
+        
         # Process all files
         success_count = 0
         duplicate_count = 0
         
         for file_data in queue:
-            is_duplicate = check_duplicate_resource(
-                course_id,
-                resource_type_id,
-                file_data['file_name']
-            )
-            
-            if is_duplicate:
-                duplicate_count += 1
-                continue
-            
-            resource_id = save_resource(
-                course_id=course_id,
-                resource_type_id=resource_type_id,
-                file_id=file_data['file_id'],
-                file_name=file_data['file_name'],
-                uploader_id=file_data['uploader_id']
-            )
-            
-            save_approval(resource_id, call.from_user.id)
-            success_count += 1
+            try:
+                is_duplicate = safe_db_operation(
+                    check_duplicate_resource,
+                    False,
+                    course_id,
+                    resource_type_id,
+                    file_data['file_name']
+                )
+                
+                if is_duplicate:
+                    duplicate_count += 1
+                    continue
+                
+                resource_id = safe_db_operation(
+                    save_resource,
+                    None,
+                    course_id=course_id,
+                    resource_type_id=resource_type_id,
+                    file_id=file_data['file_id'],
+                    file_name=file_data['file_name'],
+                    uploader_id=file_data['uploader_id']
+                )
+                
+                if resource_id:
+                    safe_db_operation(save_approval, None, resource_id, call.from_user.id)
+                    success_count += 1
+            except DatabaseTimeoutError:
+                continue  # Skip this file if DB timeout
+            except Exception:
+                continue  # Skip on other errors
         
         # Show result
         approver_username = call.from_user.username or call.from_user.first_name
@@ -662,9 +732,10 @@ def groups_handler(bot):
             result_msg += f"⏭️ {duplicate_count} file(s) skipped (already exist)\n"
         result_msg += f"\n👤 Approved by: @{approver_username}"
         
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
+        edit_message_safe(
+            bot,
+            chat_id,
+            processing_msg_id,
             text=result_msg,
             parse_mode="Markdown"
         )

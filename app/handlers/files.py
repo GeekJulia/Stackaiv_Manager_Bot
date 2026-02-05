@@ -15,6 +15,8 @@ from ..database.queries import (
     save_admin_message,
 )
 
+from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
+
 file_sessions = {}
 
 # Batch upload handling for files.py (per user)
@@ -30,6 +32,23 @@ def escape_markdown(text):
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 def files_handler(bot):
+
+    def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
+        """Send a loading message and return its message_id"""
+        msg = bot.send_message(chat_id, text, parse_mode="Markdown")
+        return msg.message_id
+    
+    def edit_message_safe(bot, chat_id, message_id, text, **kwargs):
+        """Safely edit a message or send new if edit fails"""
+        try:
+            bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                **kwargs
+            )
+        except:
+            bot.send_message(chat_id, text, **kwargs)
 
     # -------------------------
     # HELP
@@ -147,32 +166,107 @@ def files_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:courses")
     def all_courses(call):
-        program_id = get_user_program_id(call.from_user.id)
-        courses = get_courses_by_program(program_id)
+        # Send loading message
+        loading_msg_id = send_loading_message(
+            bot,
+            call.message.chat.id,
+            "⏳ *Loading your courses...*"
+        )
+        
+        try:
+            program_id = safe_db_operation(get_user_program_id, None, call.from_user.id)
+            courses = []
+            if program_id:
+                courses = safe_db_operation(get_courses_by_program, [], program_id)
 
-        text = "📚 *Registered Courses*\n\n"
-        for c in courses:
-            text += f"• {c['course_code']}\n"
+            text = "📚 *Registered Courses*\n\n"
+            if courses:
+                for c in courses:
+                    text += f"• {c['course_code']}\n"
+            else:
+                text += "No courses registered yet."
 
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                text,
+                parse_mode="Markdown"
+            )
+            
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                f"❌ Error: {str(e)}",
+                parse_mode="Markdown"
+            )
 
     # -------------------------
     # ADD RESOURCE → SELECT COURSE
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:add")
     def add_resource_courses(call):
-        program_id = get_user_program_id(call.from_user.id)
-        courses = get_courses_by_program(program_id)
-
-        kb = build_course_keyboard(courses, callback_prefix="add:course")
-
-        # Send a NEW message for course selection (don't replace hub)
-        bot.send_message(
+        # Send loading message
+        loading_msg_id = send_loading_message(
+            bot,
             call.message.chat.id,
-            "📘 *Select a course:*",
-            parse_mode="Markdown",
-            reply_markup=kb,
+            "⏳ *Loading available courses...*"
         )
+        
+        try:
+            program_id = safe_db_operation(get_user_program_id, None, call.from_user.id)
+            courses = []
+            if program_id:
+                courses = safe_db_operation(get_courses_by_program, [], program_id)
+            
+            if not courses:
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    "📚 *No Courses Found*\n\nYou need to add courses first before uploading resources.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            kb = build_course_keyboard(courses, callback_prefix="add:course")
+
+            # Edit loading message with course selection
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                "📘 *Select a course:*",
+                parse_mode="Markdown",
+                reply_markup=kb,
+            )
+            
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                f"❌ Error: {str(e)}",
+                parse_mode="Markdown"
+            )
 
     # -------------------------
     # ADD RESOURCE → SELECT TYPE
@@ -351,18 +445,57 @@ def files_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:get")
     def get_resource_course(call):
-        program_id = get_user_program_id(call.from_user.id)
-        courses = get_courses_by_program(program_id)
-
-        kb = build_course_keyboard(courses, callback_prefix="get:course")
-
-        # Send a NEW message for course selection (don't replace hub)
-        bot.send_message(
+        # Send loading message
+        loading_msg_id = send_loading_message(
+            bot,
             call.message.chat.id,
-            "📘 *Select a course:*",
-            parse_mode="Markdown",
-            reply_markup=kb,
+            "⏳ *Loading available courses...*"
         )
+        
+        try:
+            program_id = safe_db_operation(get_user_program_id, None, call.from_user.id)
+            courses = []
+            if program_id:
+                courses = safe_db_operation(get_courses_by_program, [], program_id)
+
+            if not courses:
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    "📚 *No Courses Found*\n\nYou need to add courses first before downloading resources.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            kb = build_course_keyboard(courses, callback_prefix="get:course")
+
+            # Edit loading message with course selection
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                "📘 *Select a course:*",
+                parse_mode="Markdown",
+                reply_markup=kb,
+            )
+            
+        except DatabaseTimeoutError:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                f"❌ Error: {str(e)}",
+                parse_mode="Markdown"
+            )
 
     # -------------------------
     # GET RESOURCE → TYPE
@@ -537,6 +670,13 @@ def files_handler(bot):
             bot.answer_callback_query(call.id, "Queue is empty", show_alert=True)
             return
         
+        # Send processing message
+        processing_msg_id = send_loading_message(
+            bot,
+            call.message.chat.id,
+            f"⏳ *Processing {len(queue)} file(s)...*"
+        )
+        
         # Process all files
         success_count = 0
         duplicate_count = 0
@@ -544,7 +684,9 @@ def files_handler(bot):
         
         for file_data in queue:
             try:
-                is_duplicate = check_duplicate_resource_by_type(
+                is_duplicate = safe_db_operation(
+                    check_duplicate_resource_by_type,
+                    False,
                     file_data['course_id'],
                     file_data['resource_type_id'],
                     file_data['file_name']
@@ -554,7 +696,9 @@ def files_handler(bot):
                     duplicate_count += 1
                     continue
                 
-                resource_id = save_resource_with_type_check(
+                resource_id = safe_db_operation(
+                    save_resource_with_type_check,
+                    None,
                     course_id=file_data['course_id'],
                     resource_type_id=file_data['resource_type_id'],
                     file_id=file_data['file_id'],
@@ -566,6 +710,8 @@ def files_handler(bot):
                     success_count += 1
                 else:
                     error_count += 1
+            except DatabaseTimeoutError:
+                error_count += 1
             except Exception as e:
                 print(f"Error processing file {file_data['file_name']}: {e}")
                 error_count += 1
@@ -579,10 +725,11 @@ def files_handler(bot):
             result_msg += f"❌ {error_count} file(s) failed\n"
         result_msg += "\nYour resources are now available for your program community."
         
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=result_msg,
+        edit_message_safe(
+            bot,
+            call.message.chat.id,
+            processing_msg_id,
+            result_msg,
             parse_mode="Markdown"
         )
         
