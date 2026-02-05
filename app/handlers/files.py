@@ -158,11 +158,14 @@ def files_handler(bot):
 
         kb = build_course_keyboard(courses, callback_prefix="add:course")
 
-        bot.send_message(
-            call.message.chat.id,
-            "📘 *Select a course:*",
+        # Replace the current hub message with the course selection
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="📘 *Select a course:*",
             parse_mode="Markdown",
-            reply_markup=kb
+            reply_markup=kb,
         )
 
     # -------------------------
@@ -182,11 +185,14 @@ def files_handler(bot):
 
         kb = build_resource_type_keyboard(resource_types, callback_prefix="add:type")
 
-        bot.send_message(
-            call.message.chat.id,
-            f"📂 *Select resource type for {course['course_code']}:*",
+        # Replace the course selection message with resource type selection
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"📂 *Select resource type for {course['course_code']}:*",
             parse_mode="Markdown",
-            reply_markup=kb
+            reply_markup=kb,
         )
 
     # -------------------------
@@ -194,13 +200,32 @@ def files_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("add:type:"))
     def await_file(call):
+        user_id = call.from_user.id
         res_type_id = int(call.data.split(":")[2])
-        file_sessions[call.from_user.id]["resource_type_id"] = res_type_id
 
-        bot.send_message(
-            call.message.chat.id,
-            "📎 Send the file now (PDF, DOCX, etc).",
-            parse_mode="Markdown"
+        # Ensure we have an active session for this user
+        session = file_sessions.get(user_id)
+        if not session or session.get("stage") != "awaiting_file":
+            # This can happen if:
+            # - The user clicked an old inline button from before a restart
+            # - Their session was cleared (e.g. cancel, timeout, restart)
+            # Fail gracefully instead of raising KeyError
+            bot.answer_callback_query(
+                call.id,
+                "Your upload session has expired. Please tap 'Add Resource' again.",
+                show_alert=True,
+            )
+            return
+
+        session["resource_type_id"] = res_type_id
+
+        # Replace the resource type selection message with the "send file" prompt
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="📎 Send the file or documents now (PDF, DOCX, etc).",
+            parse_mode="Markdown",
         )
 
     # -------------------------
@@ -303,11 +328,14 @@ def files_handler(bot):
 
         kb = build_course_keyboard(courses, callback_prefix="get:course")
 
-        bot.send_message(
-            call.message.chat.id,
-            "📘 *Select a course:*",
+        # Replace the current hub message with the course selection
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="📘 *Select a course:*",
             parse_mode="Markdown",
-            reply_markup=kb
+            reply_markup=kb,
         )
 
     # -------------------------
@@ -327,11 +355,14 @@ def files_handler(bot):
 
         kb = build_resource_type_keyboard(resource_types, callback_prefix="get:type")
 
-        bot.send_message(
-            call.message.chat.id,
-            f"📂 *Select resource type for {course['course_code']}:*",
+        # Replace the course selection message with resource type selection
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"📂 *Select resource type for {course['course_code']}:*",
             parse_mode="Markdown",
-            reply_markup=kb
+            reply_markup=kb,
         )
 
     # -------------------------
@@ -341,7 +372,15 @@ def files_handler(bot):
     def list_slots(call):
         user_id = call.from_user.id
         res_type_id = int(call.data.split(":")[2])
-        session = file_sessions[user_id]
+        session = file_sessions.get(user_id)
+
+        if not session or session.get("stage") != "select_slot":
+            bot.answer_callback_query(
+                call.id,
+                "Your session has expired. Please use 'Get Resource' again.",
+                show_alert=True,
+            )
+            return
 
         resources = get_resources_by_course_and_type(
             session["course_id"], res_type_id
@@ -357,10 +396,16 @@ def files_handler(bot):
             "• `All`"
         )
 
-
         session["resources"] = resources
 
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+        # Replace the resource type selection message with the slot list + instructions
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            parse_mode="Markdown",
+        )
 
     # -------------------------
     # SEND SLOT NUMBER
