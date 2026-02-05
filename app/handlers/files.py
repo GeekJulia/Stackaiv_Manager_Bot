@@ -1,5 +1,6 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import threading
+import re
 from ..utils.messages import safe_edit_or_send
 from ..utils.keyboards import build_course_keyboard, build_resource_type_keyboard
 from ..database.queries import (
@@ -20,6 +21,13 @@ file_sessions = {}
 file_batch_queues = {}  # {user_id: [file_dict1, file_dict2, ...]}
 file_batch_timers = {}  # {user_id: threading.Timer}
 file_batch_messages = {}  # {user_id: message_id} - stores the batch prompt message_id
+
+def escape_markdown(text):
+    """Escape special characters for Markdown"""
+    # Characters that need escaping in Telegram MarkdownV2: _*[]()~`>#+-=|{}.!
+    # For Markdown (not V2), we mainly need to escape: _ * [ ] ( ) ~
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 def files_handler(bot):
 
@@ -158,12 +166,10 @@ def files_handler(bot):
 
         kb = build_course_keyboard(courses, callback_prefix="add:course")
 
-        # Replace the current hub message with the course selection
-        safe_edit_or_send(
-            bot,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="📘 *Select a course:*",
+        # Send a NEW message for course selection (don't replace hub)
+        bot.send_message(
+            call.message.chat.id,
+            "📘 *Select a course:*",
             parse_mode="Markdown",
             reply_markup=kb,
         )
@@ -283,14 +289,16 @@ def files_handler(bot):
         
         queue = file_batch_queues[user_id]
         
-        # Build file list text
+        # Build file list text with escaped filenames
         file_list = "📎 *Files queued for upload:*\n\n"
         for i, f in enumerate(queue, 1):
             course = get_course_info(f['course_id'])
-            file_list += f"{i}. `{f['file_name']}`\n   → {course['course_code']}\n"
+            # Escape filename for Markdown
+            escaped_name = escape_markdown(f['file_name'])
+            file_list += f"{i}\\. `{escaped_name}`\n   → {course['course_code']}\n"
         
         file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
-        file_list += "Review files above. Confirm to upload all."
+        file_list += "Review files above\\. Confirm to upload all\\."
         
         # Build keyboard
         kb = InlineKeyboardMarkup()
@@ -299,11 +307,11 @@ def files_handler(bot):
             InlineKeyboardButton("❌ Cancel", callback_data="fbatch:cancel")
         )
         
-        # Send batch prompt
+        # Send batch prompt with MarkdownV2
         msg = bot.send_message(
             chat_id,
             file_list,
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
             reply_markup=kb
         )
         
@@ -328,12 +336,10 @@ def files_handler(bot):
 
         kb = build_course_keyboard(courses, callback_prefix="get:course")
 
-        # Replace the current hub message with the course selection
-        safe_edit_or_send(
-            bot,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="📘 *Select a course:*",
+        # Send a NEW message for course selection (don't replace hub)
+        bot.send_message(
+            call.message.chat.id,
+            "📘 *Select a course:*",
             parse_mode="Markdown",
             reply_markup=kb,
         )
@@ -386,25 +392,30 @@ def files_handler(bot):
             session["course_id"], res_type_id
         )
 
+        # Build text with escaped filenames for Markdown
         text = "📁 *Available Resources*\n\n"
         for i, r in enumerate(resources, start=1):
-            text += f"Slot {i} | {r['file_name']}\n"
+            # Escape filename for Markdown display
+            escaped_name = escape_markdown(r['file_name'])
+            text += f"Slot {i} \\| `{escaped_name}`\n"
+        
         text += (
             "\n\n📥 *Send:*\n"
             "• `Slot 1`\n"
-            "• `Slot 1, Slot 2, Slot 3` (comma-separated)\n"
+            "• `Slot 1, Slot 2, Slot 3` \\(comma\\-separated\\)\n"
             "• `All`"
         )
 
         session["resources"] = resources
 
         # Replace the resource type selection message with the slot list + instructions
+        # Use MarkdownV2 for proper escaping
         safe_edit_or_send(
             bot,
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=text,
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
         )
 
     # -------------------------

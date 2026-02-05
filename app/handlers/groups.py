@@ -375,15 +375,14 @@ def groups_handler(bot):
         )
     
     # -------------------------
-    # Display Batch Upload Prompt
+    # Display Batch Upload Prompt - SIMPLIFIED
     # -------------------------
     def display_batch_prompt(chat_id, bot):
-        """Show batch prompt for all queued files"""
+        """Show batch prompt for all queued files - simplified version"""
         if chat_id not in batch_queues or not batch_queues[chat_id]:
             return
         
         queue = batch_queues[chat_id]
-        courses = get_courses_by_program(queue[0]['program_id'])
         
         # Build file list text
         file_list = "📎 *Files queued for upload:*\n\n"
@@ -392,22 +391,12 @@ def groups_handler(bot):
             file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
         
         file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
-        file_list += "📚 *Select course & resource type for all files:*"
+        file_list += "📚 Select course for all files:"
         
-        # Build keyboard with courses and resource types
+        # Build keyboard - ONLY "Select Course" and "Cancel"
         kb = InlineKeyboardMarkup()
-        
-        # Course selection row
         kb.add(InlineKeyboardButton("📚 Select Course", callback_data="batch:course"))
-        
-        # Resource type selection row
-        kb.add(InlineKeyboardButton("📂 Select Type", callback_data="batch:type"))
-        
-        # Action buttons
-        kb.add(
-            InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
-            InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel")
-        )
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
         
         # Send batch prompt
         msg = bot.send_message(
@@ -448,6 +437,7 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         for c in courses:
             kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"batch_course:{c['id']}"))
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="batch:back"))
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -459,7 +449,7 @@ def groups_handler(bot):
         session["stage"] = "batch_selecting_course"
     
     # -------------------------
-    # Batch: Course Selected
+    # Batch: Course Selected - Now Show Resource Types
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("batch_course:"))
     def batch_course_selected(call):
@@ -478,6 +468,7 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         for r in resource_types:
             kb.add(InlineKeyboardButton(r['name'], callback_data=f"batch_type:{r['id']}"))
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="batch:course"))
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -489,7 +480,7 @@ def groups_handler(bot):
         session["stage"] = "batch_selecting_type"
     
     # -------------------------
-    # Batch: Resource Type Selected
+    # Batch: Resource Type Selected - Show Confirmation
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("batch_type:"))
     def batch_type_selected(call):
@@ -503,9 +494,8 @@ def groups_handler(bot):
         
         session["resource_type_id"] = resource_type_id
         
-        # Go back to main batch prompt showing selections
+        # Get selections for display
         course_id = session.get("course_id")
-        resource_type_id_val = session.get("resource_type_id")
         
         course = None
         resource_type = None
@@ -517,10 +507,10 @@ def groups_handler(bot):
                     course = c
                     break
         
-        if resource_type_id_val:
+        if resource_type_id:
             types = get_resource_types()
             for t in types:
-                if t['id'] == resource_type_id_val:
+                if t['id'] == resource_type_id:
                     resource_type = t
                     break
         
@@ -532,10 +522,11 @@ def groups_handler(bot):
         for i, f in enumerate(queue, 1):
             file_list += f"  {i}. `{f['file_name']}`\n"
         
+        # Now show "Process All" button
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
-            InlineKeyboardButton("↩️ Back", callback_data="batch:back")
+            InlineKeyboardButton("⬅️ Back", callback_data="batch:back_to_type")
         )
         kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
         
@@ -546,6 +537,34 @@ def groups_handler(bot):
             parse_mode="Markdown",
             reply_markup=kb
         )
+        session["stage"] = "batch_ready_to_process"
+    
+    # -------------------------
+    # Batch: Back to Type Selection
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:back_to_type")
+    def batch_back_to_type(call):
+        chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            return
+        
+        # Show resource type selection again
+        resource_types = get_resource_types()
+        kb = InlineKeyboardMarkup()
+        for r in resource_types:
+            kb.add(InlineKeyboardButton(r['name'], callback_data=f"batch_type:{r['id']}"))
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="batch:course"))
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text="📂 *Select the resource type for all files:*",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_selecting_type"
     
     # -------------------------
     # Batch: Back to Main Menu
@@ -558,13 +577,10 @@ def groups_handler(bot):
         if not session:
             return
         
+        # Back to initial prompt
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("📚 Select Course", callback_data="batch:course"))
-        kb.add(InlineKeyboardButton("📂 Select Type", callback_data="batch:type"))
-        kb.add(
-            InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
-            InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel")
-        )
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
         
         queue = batch_queues[chat_id]
         file_list = "📎 *Files queued for upload:*\n\n"
@@ -573,7 +589,7 @@ def groups_handler(bot):
             file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
         
         file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
-        file_list += "📚 *Select course & resource type for all files:*"
+        file_list += "📚 Select course for all files:"
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -669,7 +685,8 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="❌ *Batch upload cancelled*"
+            text="❌ *Batch upload cancelled*",
+            parse_mode="Markdown"
         )
         
         # Clean up
