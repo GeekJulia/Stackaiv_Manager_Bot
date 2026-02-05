@@ -1,7 +1,5 @@
 import threading
-import time
 from functools import wraps
-from ..database.queries import conn as db_conn
 
 class DatabaseTimeoutError(Exception):
     """Custom exception for database timeouts"""
