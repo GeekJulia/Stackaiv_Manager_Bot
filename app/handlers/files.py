@@ -289,16 +289,16 @@ def files_handler(bot):
         
         queue = file_batch_queues[user_id]
         
-        # Build file list text with escaped filenames
+        # Build file list text - use plain Markdown (not V2) for simplicity
         file_list = "📎 *Files queued for upload:*\n\n"
         for i, f in enumerate(queue, 1):
             course = get_course_info(f['course_id'])
-            # Escape filename for Markdown
-            escaped_name = escape_markdown(f['file_name'])
-            file_list += f"{i}\\. `{escaped_name}`\n   → {course['course_code']}\n"
+            # Don't use backticks for filenames with special chars in Markdown
+            # Just show them plain to avoid parsing issues
+            file_list += f"{i}. {f['file_name']}\n   → {course['course_code']}\n"
         
         file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
-        file_list += "Review files above\\. Confirm to upload all\\."
+        file_list += "Review files above. Confirm to upload all."
         
         # Build keyboard
         kb = InlineKeyboardMarkup()
@@ -307,24 +307,44 @@ def files_handler(bot):
             InlineKeyboardButton("❌ Cancel", callback_data="fbatch:cancel")
         )
         
-        # Send batch prompt with MarkdownV2
-        msg = bot.send_message(
-            chat_id,
-            file_list,
-            parse_mode="MarkdownV2",
-            reply_markup=kb
-        )
-        
-        # Store message_id for this batch
-        file_batch_messages[user_id] = msg.message_id
-        
-        # Initialize batch session (shared for all files in this batch)
-        session_key = f"fbatch:{user_id}"
-        file_sessions[session_key] = {
-            "stage": "batch_processing",
-            "user_id": user_id,
-            "file_count": len(queue)
-        }
+        # Send batch prompt with regular Markdown and error handling
+        try:
+            msg = bot.send_message(
+                chat_id,
+                file_list,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+            
+            # Store message_id for this batch
+            file_batch_messages[user_id] = msg.message_id
+            
+            # Initialize batch session (shared for all files in this batch)
+            session_key = f"fbatch:{user_id}"
+            file_sessions[session_key] = {
+                "stage": "batch_processing",
+                "user_id": user_id,
+                "file_count": len(queue)
+            }
+        except Exception as e:
+            print(f"ERROR sending batch prompt: {e}")
+            # Fallback: send without Markdown
+            try:
+                msg = bot.send_message(
+                    chat_id,
+                    file_list.replace("*", ""),
+                    reply_markup=kb
+                )
+                
+                file_batch_messages[user_id] = msg.message_id
+                session_key = f"fbatch:{user_id}"
+                file_sessions[session_key] = {
+                    "stage": "batch_processing",
+                    "user_id": user_id,
+                    "file_count": len(queue)
+                }
+            except Exception as e2:
+                print(f"ERROR sending batch prompt (fallback): {e2}")
 
     # -------------------------
     # GET RESOURCE → SELECT COURSE
@@ -392,31 +412,40 @@ def files_handler(bot):
             session["course_id"], res_type_id
         )
 
-        # Build text with escaped filenames for Markdown
+        # Build text - use plain Markdown for better compatibility
         text = "📁 *Available Resources*\n\n"
         for i, r in enumerate(resources, start=1):
-            # Escape filename for Markdown display
-            escaped_name = escape_markdown(r['file_name'])
-            text += f"Slot {i} \\| `{escaped_name}`\n"
+            # Show filenames plain without backticks to avoid parsing issues
+            text += f"Slot {i} | {r['file_name']}\n"
         
         text += (
             "\n\n📥 *Send:*\n"
-            "• `Slot 1`\n"
-            "• `Slot 1, Slot 2, Slot 3` \\(comma\\-separated\\)\n"
-            "• `All`"
+            "• Slot 1\n"
+            "• Slot 1, Slot 2, Slot 3 (comma-separated)\n"
+            "• All"
         )
 
         session["resources"] = resources
 
-        # Replace the resource type selection message with the slot list + instructions
-        # Use MarkdownV2 for proper escaping
-        safe_edit_or_send(
-            bot,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=text,
-            parse_mode="MarkdownV2",
-        )
+        # Replace the resource type selection message with the slot list
+        # Use regular Markdown with error handling
+        try:
+            safe_edit_or_send(
+                bot,
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text,
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            print(f"ERROR sending slot list: {e}")
+            # Fallback: send without markdown
+            safe_edit_or_send(
+                bot,
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text.replace("*", ""),
+            )
 
     # -------------------------
     # SEND SLOT NUMBER
