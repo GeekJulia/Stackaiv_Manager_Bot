@@ -32,6 +32,7 @@ except Exception as e:
 
 from .services.payments import handle_payment_webhook
 from .database.queries import get_user_program_id
+from .database.queries import conn as db_conn
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
@@ -137,9 +138,46 @@ def health_check():
     """Health check endpoint"""
     return jsonify({"status": "ok", "service": "paystack-webhook"}), 200
 
+
+@app.route("/telegram/health", methods=["GET"])
+def telegram_health():
+    """
+    Health check for Telegram bot and database.
+    
+    Returns:
+      - 200 OK if bot is initialized and DB is reachable
+      - 503 if either bot or DB is not healthy
+    """
+    health = {
+        "service": "telegram-bot",
+        "bot_initialized": False,
+        "db_connected": False,
+    }
+
+    # Check bot object
+    if bot is None:
+        logger.error("Telegram health check: bot is not initialized (bot is None).")
+        return jsonify({**health, "status": "error", "reason": "bot_uninitialized"}), 503
+    health["bot_initialized"] = True
+
+    # Check DB connection with a very light query
+    try:
+        with db_conn.cursor() as cursor:
+            cursor.execute("SELECT 1;")
+        health["db_connected"] = True
+    except Exception as e:
+        logger.error(f"Telegram health check: DB connectivity failed: {e}", exc_info=True)
+        return jsonify({**health, "status": "error", "reason": "db_unreachable"}), 503
+
+    return jsonify({**health, "status": "ok"}), 200
+
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
     try:
+        if bot is None:
+            logger.error("Telegram webhook received update but bot is not initialized (bot is None).")
+            return jsonify({"status": "error", "message": "bot_not_initialized"}), 503
+
         update = telebot.types.Update.de_json(request.json)
         bot.process_new_updates([update])
         return jsonify({"status": "ok"}), 200
