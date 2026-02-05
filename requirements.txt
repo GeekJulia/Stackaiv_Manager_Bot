@@ -3,3 +3,4 @@ python-dotenv==1.0.0
 flask
 gunicorn
 psycopg[binary]==3.3.2
+psycopg-pool==3.2.1

@@ -32,7 +32,8 @@ except Exception as e:
 
 from .services.payments import handle_payment_webhook
 from .database.queries import get_user_program_id
-from .database.queries import conn as db_conn
+from .database.clients import pool
+
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
@@ -154,19 +155,18 @@ def telegram_health():
         "db_connected": False,
     }
 
-    # Check bot object
     if bot is None:
-        logger.error("Telegram health check: bot is not initialized (bot is None).")
         return jsonify({**health, "status": "error", "reason": "bot_uninitialized"}), 503
+
     health["bot_initialized"] = True
 
-    # Check DB connection with a very light query
     try:
-        with db_conn.cursor() as cursor:
-            cursor.execute("SELECT 1;")
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1;")
         health["db_connected"] = True
-    except Exception as e:
-        logger.error(f"Telegram health check: DB connectivity failed: {e}", exc_info=True)
+    except Exception:
+        logger.error("DB health check failed", exc_info=True)
         return jsonify({**health, "status": "error", "reason": "db_unreachable"}), 503
 
     return jsonify({**health, "status": "ok"}), 200
