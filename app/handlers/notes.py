@@ -11,6 +11,22 @@ from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 
 notes_sessions = {}
 
+# ✅ NEW HELPER FUNCTION - GET ACTIVE PROGRAM ID
+def get_active_program_id(user_id):
+    """
+    Get program ID for a user - checks session first, then fallback to created program.
+    This allows users to access programs via Program ID (not just programs they created).
+    """
+    from .start import user_sessions
+    
+    # First check session for program_id
+    session = user_sessions.get(user_id, {})
+    if "program_id" in session:
+        return session["program_id"]
+    
+    # Fallback to user's created program
+    return safe_db_operation(get_user_program_id, None, user_id)
+
 def notes_handler(bot):
     """
     Handles course registration and resource type selection.
@@ -35,7 +51,7 @@ def notes_handler(bot):
             bot.send_message(chat_id, text, **kwargs)
 
     # -------------------------
-    # Start Notes/Courses Handler
+    # Start Notes/Courses Handler - ✅ FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "notes:start")
     def notes_start(call):
@@ -51,7 +67,8 @@ def notes_handler(bot):
         )
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, user_id)
+            # ✅ USE NEW HELPER FUNCTION
+            program_id = get_active_program_id(user_id)
             courses = []
             if program_id:
                 courses = safe_db_operation(get_courses_by_program, [], program_id)
@@ -185,7 +202,7 @@ def notes_handler(bot):
         )
 
     # -------------------------
-    # Confirm Courses - Yes
+    # Confirm Courses - Yes - ✅ FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "notes:confirm_yes")
     def confirm_courses_yes(call):
@@ -207,7 +224,8 @@ def notes_handler(bot):
         )
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, user_id)
+            # ✅ USE NEW HELPER FUNCTION
+            program_id = get_active_program_id(user_id)
             if not program_id:
                 edit_message_safe(
                     bot,
@@ -456,7 +474,7 @@ def notes_handler(bot):
         show_resource_checkboxes(bot, call.message.chat.id, user_id)
 
     # -------------------------
-    # Submit - Save Resource Types for All Courses
+    # Submit - Save Resource Types for All Courses - ✅ FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "notes:submit")
     def submit_resources(call):
@@ -477,7 +495,8 @@ def notes_handler(bot):
             for course_id in session["course_ids"]:
                 save_course_resource_types(course_id, selected_resources)
 
-            program_id = get_user_program_id(user_id)
+            # ✅ USE NEW HELPER FUNCTION
+            program_id = get_active_program_id(user_id)
             program_info = get_program_info(program_id)
             courses = get_courses_by_program(program_id)
 

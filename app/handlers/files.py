@@ -31,6 +31,22 @@ def escape_markdown(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
+# ✅ NEW HELPER FUNCTION - GET ACTIVE PROGRAM ID
+def get_active_program_id(user_id):
+    """
+    Get program ID for a user - checks session first, then fallback to created program.
+    This allows users to access programs via Program ID (not just programs they created).
+    """
+    from .start import user_sessions
+    
+    # First check session for program_id
+    session = user_sessions.get(user_id, {})
+    if "program_id" in session:
+        return session["program_id"]
+    
+    # Fallback to user's created program
+    return safe_db_operation(get_user_program_id, None, user_id)
+
 def files_handler(bot):
 
     def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
@@ -162,7 +178,7 @@ def files_handler(bot):
             )
 
     # -------------------------
-    # ALL COURSES (TEXT LIST)
+    # ALL COURSES (TEXT LIST) - ✅ FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:courses")
     def all_courses(call):
@@ -174,7 +190,8 @@ def files_handler(bot):
         )
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, call.from_user.id)
+            # ✅ USE NEW HELPER FUNCTION
+            program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
                 courses = safe_db_operation(get_courses_by_program, [], program_id)
@@ -212,7 +229,7 @@ def files_handler(bot):
             )
 
     # -------------------------
-    # ADD RESOURCE → SELECT COURSE
+    # ADD RESOURCE → SELECT COURSE - ✅ FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:add")
     def add_resource_courses(call):
@@ -224,7 +241,8 @@ def files_handler(bot):
         )
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, call.from_user.id)
+            # ✅ USE NEW HELPER FUNCTION
+            program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
                 courses = safe_db_operation(get_courses_by_program, [], program_id)
@@ -441,7 +459,7 @@ def files_handler(bot):
                 print(f"ERROR sending batch prompt (fallback): {e2}")
 
     # -------------------------
-    # GET RESOURCE → SELECT COURSE
+    # GET RESOURCE → SELECT COURSE - ✅ FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:get")
     def get_resource_course(call):
@@ -453,7 +471,8 @@ def files_handler(bot):
         )
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, call.from_user.id)
+            # ✅ USE NEW HELPER FUNCTION
+            program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
                 courses = safe_db_operation(get_courses_by_program, [], program_id)

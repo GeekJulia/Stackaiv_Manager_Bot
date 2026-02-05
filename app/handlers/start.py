@@ -119,6 +119,12 @@ def start_handler(bot):
                 program = safe_db_operation(get_program_info, None, program_id)
                 
                 if program:
+                    # ✅ STORE PROGRAM ID IN SESSION - THIS IS THE KEY FIX
+                    user_sessions[user_id] = {
+                        "program_id": program_id,
+                        "stage": "authenticated"
+                    }
+                    
                     # Valid program ID - show hub
                     kb = InlineKeyboardMarkup(row_width=2)
                     kb.add(
@@ -143,9 +149,6 @@ def start_handler(bot):
                         parse_mode="Markdown",
                         reply_markup=kb
                     )
-                    
-                    # Clear session
-                    user_sessions.pop(user_id, None)
                 else:
                     edit_message_safe(
                         bot,
@@ -225,7 +228,10 @@ def start_handler(bot):
         loading_msg_id = send_loading_message(bot, call.message.chat.id, "⏳ *Clearing your data...*")
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, user_id)
+            # Get program_id from session first, fallback to user's created program
+            session = user_sessions.get(user_id, {})
+            program_id = session.get("program_id") or safe_db_operation(get_user_program_id, None, user_id)
+            
             if program_id:
                 safe_db_operation(clear_user_program_data, None, program_id)
             
@@ -366,7 +372,9 @@ def start_handler(bot):
         loading_msg_id = send_loading_message(bot, message.chat.id, "⏳ *Fetching your info...*")
         
         try:
-            program_id = safe_db_operation(get_user_program_id, None, user_id)
+            # Try session first, then fallback to created program
+            session = user_sessions.get(user_id, {})
+            program_id = session.get("program_id") or safe_db_operation(get_user_program_id, None, user_id)
             
             if program_id:
                 program_info = safe_db_operation(get_program_info, None, program_id)
@@ -688,6 +696,12 @@ def start_handler(bot):
                 
                 # If program was created by this user, show their program info
                 if existing_program['user_id'] == current_user_id:
+                    # ✅ STORE PROGRAM ID IN SESSION
+                    user_sessions[user_id] = {
+                        "program_id": existing_program['id'],
+                        "stage": "authenticated"
+                    }
+                    
                     kb = InlineKeyboardMarkup()
                     kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
                     kb.add(InlineKeyboardButton("🔄 Re-register", callback_data="hub:reregister"))
@@ -766,6 +780,13 @@ def start_handler(bot):
                     program_name=program,
                     user_id=saved_user_id
                 )
+                
+                # ✅ STORE PROGRAM ID IN SESSION
+                user_sessions[user_id] = {
+                    "program_id": program_id,
+                    "stage": "authenticated"
+                }
+                
             except DatabaseTimeoutError:
                 edit_message_safe(
                     bot,
@@ -830,8 +851,6 @@ def start_handler(bot):
                     parse_mode="Markdown",
                     reply_markup=kb
                 )
-
-            user_sessions.pop(user_id, None)
 
         except DatabaseTimeoutError:
             edit_message_safe(

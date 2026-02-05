@@ -1,6 +1,7 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from ..database.queries import (
     get_user_program_id,
+    get_group_program_id,
     get_program_info,
     get_program_activation_status,
     get_courses_by_program
@@ -8,6 +9,17 @@ from ..database.queries import (
 from ..services.payments import initialize_transaction, generate_payment_reference
 
 activation_sessions = {}
+
+def resolve_program_from_chat(call_or_message):
+        chat_id = call_or_message.chat.id
+        program_id = get_group_program_id(chat_id)
+
+        if not program_id:
+            raise Exception(
+                "No program is linked to this group.\n"
+                "An admin must register and link a program first."
+            )
+        return program_id
 
 def activation_handler(bot):
     """
@@ -20,11 +32,12 @@ def activation_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "action:activate_program")
     def show_activation_screen(call):
-        user_id = call.from_user.id
+        # user_id = call.from_user.id
         message_id = call.message.message_id
+        program_id = resolve_program_from_chat(call.message)
         
         try:
-            program_id = get_user_program_id(user_id)
+            program_id = get_group_program_id(program_id)
             program_info = get_program_info(program_id)
             
             # Check if already active
@@ -115,7 +128,7 @@ def activation_handler(bot):
         user_id = call.from_user.id
         
         try:
-            program_id = get_user_program_id(user_id)
+            program_id = resolve_program_from_chat(call.message)
             
             # Store in session - awaiting email
             activation_sessions[user_id] = {
@@ -257,7 +270,7 @@ def activation_handler(bot):
                 parse_mode="Markdown"
             )
             
-            program_id = get_user_program_id(user_id)
+            program_id = resolve_program_from_chat(call.message)
             is_active = get_program_activation_status(program_id)
             
             if is_active:
@@ -362,7 +375,7 @@ def activation_handler(bot):
             )
             
             # Verification is typically done via webhook, but this allows manual check
-            program_id = get_user_program_id(user_id)
+            program_id = resolve_program_from_chat(message)
             is_active = get_program_activation_status(program_id)
             
             if is_active:
