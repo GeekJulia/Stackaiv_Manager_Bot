@@ -3,6 +3,7 @@ import psycopg # type: ignore
 from dotenv import load_dotenv
 
 # Load environment variables
+# testing production
 load_dotenv()
 
 # Create connection
@@ -11,7 +12,8 @@ conn = psycopg.connect(
     user=os.getenv("DB_USER"),
     port=os.getenv("DB_PORT"),
     password=os.getenv("DB_PASSWORD"),
-    dbname=os.getenv("DB_DATABASE")
+    dbname=os.getenv("DB_DATABASE"),
+    sslmode=require
 )
 
 # -------------------------
