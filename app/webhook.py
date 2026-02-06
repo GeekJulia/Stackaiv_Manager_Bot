@@ -5,6 +5,9 @@ import hashlib
 import telebot
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
+
+telegram_executor = ThreadPoolExecutor(max_workers=4)
 # testing production1
 load_dotenv()
 
@@ -179,7 +182,7 @@ def telegram_webhook():
             return jsonify({"status": "error", "message": "bot_not_initialized"}), 503
 
         update = telebot.types.Update.de_json(request.json)
-        bot.process_new_updates([update])
+        telegram_executor.submit(bot.process_new_updates, [update])
         return jsonify({"status": "ok"}), 200
     except Exception as e:
         logger.error(f"Telegram webhook error: {e}", exc_info=True)

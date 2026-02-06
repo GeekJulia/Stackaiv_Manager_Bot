@@ -16,6 +16,6 @@ pool = ConnectionPool(
     conninfo=DATABASE_URL,
     min_size=1,
     max_size=10,
-    timeout=50,
+    timeout=5,
     max_idle=300,
 )
