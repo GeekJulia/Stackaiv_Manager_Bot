@@ -566,23 +566,26 @@ def files_handler(bot):
             session["course_id"], res_type_id
         )
 
-        # Build text - escape all dynamic content
+        # Build text exactly like groups.py does
         text = "📁 *Available Resources*\n\n"
-        for i, r in enumerate(resources, start=1):
-            # Escape the filename to prevent Markdown parsing issues
-            escaped_filename = escape_markdown(r['file_name'])
-            text += f"Slot {i} | {escaped_filename}\n"
+        
+        if resources:
+            for i, r in enumerate(resources, start=1):
+                # Use backticks for filenames like groups.py does
+                text += f"{i}. `{r['file_name']}`\n"
+        else:
+            text += "No resources available.\n"
         
         text += (
-            "\n\n📥 *Send:*\n"
-            "• Slot 1\n"
-            "• Slot 1, Slot 2, Slot 3 (comma-separated)\n"
-            "• All"
+            "\n\n📥 *How to download:*\n"
+            "• Send: `Slot 1`\n"
+            "• Send: `Slot 1, Slot 2, Slot 3` (comma-separated)\n"
+            "• Send: `All` for everything"
         )
 
         session["resources"] = resources
 
-        # Send with error handling
+        # Try with Markdown first - this should work since we use backticks
         try:
             safe_edit_or_send(
                 bot,
@@ -592,17 +595,17 @@ def files_handler(bot):
                 parse_mode="Markdown",
             )
         except Exception as e:
-            print(f"ERROR sending slot list: {e}")
-            # If Markdown fails, send as plain text
+            print(f"ERROR sending slot list (Markdown failed): {e}")
+            # Fallback to plain text
             plain_text = "📁 Available Resources\n\n"
             for i, r in enumerate(resources, start=1):
-                plain_text += f"Slot {i} | {r['file_name']}\n"
+                plain_text += f"{i}. {r['file_name']}\n"
             
             plain_text += (
-                "\n\n📥 Send:\n"
-                "• Slot 1\n"
-                "• Slot 1, Slot 2, Slot 3 (comma-separated)\n"
-                "• All"
+                "\n\n📥 How to download:\n"
+                "• Send: Slot 1\n"
+                "• Send: Slot 1, Slot 2, Slot 3 (comma-separated)\n"
+                "• Send: All (for everything)"
             )
             
             safe_edit_or_send(
