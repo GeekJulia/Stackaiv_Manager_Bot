@@ -681,11 +681,12 @@ def groups_handler(bot):
             bot.answer_callback_query(call.id, "Queue is empty", show_alert=True)
             return
         
-        # Send processing message
-        processing_msg_id = send_loading_message(
-            bot,
-            chat_id,
-            f"⏳ *Processing {len(queue)} file(s)...*"
+        # Edit the existing message to show processing status
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=f"⏳ *Processing {len(queue)} file(s)...*",
+            parse_mode="Markdown"
         )
         
         # Process all files
@@ -724,7 +725,7 @@ def groups_handler(bot):
             except Exception:
                 continue  # Skip on other errors
         
-        # Show result
+        # Show result by editing the same message
         approver_username = call.from_user.username or call.from_user.first_name
         result_msg = f"✅ *Batch Upload Complete*\n\n"
         result_msg += f"✔️ {success_count} file(s) added\n"
@@ -732,10 +733,9 @@ def groups_handler(bot):
             result_msg += f"⏭️ {duplicate_count} file(s) skipped (already exist)\n"
         result_msg += f"\n👤 Approved by: @{approver_username}"
         
-        edit_message_safe(
-            bot,
-            chat_id,
-            processing_msg_id,
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
             text=result_msg,
             parse_mode="Markdown"
         )
@@ -744,7 +744,6 @@ def groups_handler(bot):
         batch_queues.pop(chat_id, None)
         batch_messages.pop(chat_id, None)
         group_sessions.pop(session_key, None)
-    
     # -------------------------
     # Batch: Cancel
     # -------------------------
