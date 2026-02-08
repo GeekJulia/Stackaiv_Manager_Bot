@@ -462,6 +462,7 @@ def admin_handler(bot):
     # -------------------------
     # LIST ALL ADMIN MESSAGES - FIXED (Pagination)
     # -------------------------
+    # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_messages"))
     def list_admin_messages(call):
         try:
@@ -494,16 +495,31 @@ def admin_handler(bot):
             text = f"💬 *User Messages* (Page {page + 1}/{total_pages})\n\n"
             text += f"Total: {total} | ⚠️ Unhandled: {unhandled_count}\n\n"
             
+            def escape_markdown(text):
+                """Escape all special Markdown characters"""
+                if text is None:
+                    return "N/A"
+                text = str(text)
+                # Escape all special characters
+                for char in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
+                    text = text.replace(char, '\\' + char)
+                return text
+            
             for msg in page_items:
                 status = "🔴 NEW" if not msg['handled'] else "✅ Handled"
-                user_info = f"@{msg['username']}" if msg['username'] else f"ID: {msg['telegram_id']}"
+                
+                # Safely escape username
+                username = escape_markdown(msg.get('username'))
+                telegram_id = msg.get('telegram_id', 'N/A')
+                user_info = f"@{username}" if msg.get('username') else f"ID: {telegram_id}"
+                
                 date = str(msg.get('created_at', 'N/A'))[:10]
                 
-                # Truncate message if too long and escape special chars
-                message_text = str(msg['message_text']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
-                message_preview = message_text[:80]
-                if len(message_text) > 80:
-                    message_preview += "..."
+                # Truncate and escape message text
+                message_text = escape_markdown(msg.get('message_text', ''))
+                message_preview = message_text[:60]  # Even shorter preview
+                if len(message_text) > 60:
+                    message_preview += "\\.\\.\\."
                 
                 text += (
                     f"{status} | {user_info}\n"
