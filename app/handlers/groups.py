@@ -725,9 +725,29 @@ def groups_handler(bot):
             except Exception:
                 continue  # Skip on other errors
         
+        # Get course and resource type details for display
+        course = None
+        resource_type = None
+        
+        if course_id:
+            courses = get_courses_by_program(batch_queues[chat_id][0]['program_id'])
+            for c in courses:
+                if c['id'] == course_id:
+                    course = c
+                    break
+        
+        if resource_type_id:
+            types = get_resource_types()
+            for t in types:
+                if t['id'] == resource_type_id:
+                    resource_type = t
+                    break
+        
         # Show result by editing the same message
         approver_username = call.from_user.username or call.from_user.first_name
         result_msg = f"✅ *Batch Upload Complete*\n\n"
+        result_msg += f"📚 Course: `{course['course_code'] if course else 'Unknown'}`\n"
+        result_msg += f"📂 Resource Type: `{resource_type['name'] if resource_type else 'Unknown'}`\n\n"
         result_msg += f"✔️ {success_count} file(s) added\n"
         if duplicate_count > 0:
             result_msg += f"⏭️ {duplicate_count} file(s) skipped (already exist)\n"
