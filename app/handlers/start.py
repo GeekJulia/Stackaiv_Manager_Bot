@@ -74,6 +74,17 @@ def start_handler(bot):
 
     @bot.message_handler(commands=['start'])
     def start(message):
+        # Check if command is used in a group chat
+        if message.chat.type in ['group', 'supergroup']:
+            bot.send_message(
+                message.chat.id,
+                "⚠️ *Private Command Only*\n\n"
+                "The `/start` command should be used in a private chat with me, not in groups.\n\n"
+                "👉 Please send me a private message to get started.",
+                parse_mode="Markdown"
+            )
+            return
+        
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🏠 Go to Program Space", callback_data="action:goto_space"))
         kb.add(InlineKeyboardButton("➕ Onboard a New Program", callback_data="action:new_program"))
@@ -366,6 +377,17 @@ def start_handler(bot):
     # -------------------------
     @bot.message_handler(commands=['whoami'])
     def whoami(message):
+        # Check if command is used in a group chat
+        if message.chat.type in ['group', 'supergroup']:
+            bot.send_message(
+                message.chat.id,
+                "⚠️ *Private Command Only*\n\n"
+                "The `/whoami` command should be used in a private chat with me, not in groups.\n\n"
+                "👉 Please send me a private message to check your info.",
+                parse_mode="Markdown"
+            )
+            return
+        
         user_id = message.from_user.id
         
         # Send loading message
