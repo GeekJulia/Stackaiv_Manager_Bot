@@ -78,7 +78,7 @@ def admin_handler(bot):
         _send_admin_panel(call.message.chat.id)
 
     # -------------------------
-    # LIST ALL TRANSACTIONS
+    # LIST ALL TRANSACTIONS - FIXED (Don't replace admin panel)
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_transactions"))
     def list_transactions(call):
@@ -87,10 +87,9 @@ def admin_handler(bot):
             
             total = len(transactions)
             if not total:
-                bot.edit_message_text(
-                    "📊 *Transactions*\n\nNo transactions found.",
+                bot.send_message(
                     call.message.chat.id,
-                    call.message.message_id,
+                    "📊 *Transactions*\n\nNo transactions found.",
                     parse_mode="Markdown"
                 )
                 return
@@ -133,12 +132,12 @@ def admin_handler(bot):
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_transactions:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
-            kb.add(InlineKeyboardButton("🏠 Admin Panel", callback_data="admin:panel"))
+            kb.add(InlineKeyboardButton("🔄 Refresh", callback_data="admin:list_transactions:0"))
 
-            bot.edit_message_text(
-                text,
+            # SEND NEW MESSAGE instead of editing
+            bot.send_message(
                 call.message.chat.id,
-                call.message.message_id,
+                text,
                 parse_mode="Markdown",
                 reply_markup=kb
             )
@@ -211,7 +210,7 @@ def admin_handler(bot):
             admin_sessions.pop(user_id, None)
 
     # -------------------------
-    # LIST ALL PROGRAMS
+    # LIST ALL PROGRAMS - FIXED (Escape special characters)
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_programs"))
     def list_programs(call):
@@ -222,17 +221,16 @@ def admin_handler(bot):
             programs = sorted(programs, key=lambda p: p['id'], reverse=True)
             total = len(programs)
             if not total:
-                bot.edit_message_text(
-                    "🏫 *Programs*\n\nNo programs found.",
+                bot.send_message(
                     call.message.chat.id,
-                    call.message.message_id,
+                    "🏫 *Programs*\n\nNo programs found.",
                     parse_mode="Markdown"
                 )
                 return
 
             parts = call.data.split(":")
             page = int(parts[2]) if len(parts) > 2 else 0
-            # Use small page size to guarantee short messages
+            # Use smaller page size to avoid message length issues
             page_size = 5
             total_pages = (total + page_size - 1) // page_size
             page = max(0, min(page, total_pages - 1))
@@ -245,13 +243,21 @@ def admin_handler(bot):
             
             for p in page_items:
                 status = "✅ Active" if p['is_active'] else "⏳ Inactive"
+                
+                # Escape special Markdown characters in user-generated content
+                program_name = str(p['name']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                level = str(p['level']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                college = str(p['college']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                creator_name = str(p['creator_name']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                creator_username = str(p['creator_username']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                
                 text += (
                     f"ID: `{p['id']}`\n"
-                    f"Name: {p['name']}\n"
-                    f"Level: {p['level']} | College: {p['college']}\n"
-                    f"Creator: {p['creator_name']} (@{p['creator_username']})\n"
+                    f"Name: {program_name}\n"
+                    f"Level: {level} | College: {college}\n"
+                    f"Creator: {creator_name} (@{creator_username})\n"
                     f"Status: {status}\n"
-                    f"─" * 40 + "\n"
+                    f"──────────────────\n"
                 )
 
             kb = InlineKeyboardMarkup()
@@ -262,12 +268,12 @@ def admin_handler(bot):
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_programs:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
-            kb.add(InlineKeyboardButton("🏠 Admin Panel", callback_data="admin:panel"))
+            kb.add(InlineKeyboardButton("🔄 Refresh", callback_data="admin:list_programs:0"))
 
-            bot.edit_message_text(
-                text,
+            # SEND NEW MESSAGE instead of editing
+            bot.send_message(
                 call.message.chat.id,
-                call.message.message_id,
+                text,
                 parse_mode="Markdown",
                 reply_markup=kb
             )
@@ -387,7 +393,7 @@ def admin_handler(bot):
         )
 
     # -------------------------
-    # LIST ALL USERS
+    # LIST ALL USERS - FIXED (Pagination + smaller page size)
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_users"))
     def list_users(call):
@@ -396,17 +402,17 @@ def admin_handler(bot):
             
             total = len(users)
             if not total:
-                bot.edit_message_text(
-                    "👥 *Users*\n\nNo users found.",
+                bot.send_message(
                     call.message.chat.id,
-                    call.message.message_id,
+                    "👥 *Users*\n\nNo users found.",
                     parse_mode="Markdown"
                 )
                 return
 
             parts = call.data.split(":")
             page = int(parts[2]) if len(parts) > 2 else 0
-            page_size = 15
+            # REDUCED page size to avoid message too long error
+            page_size = 10
             total_pages = (total + page_size - 1) // page_size
             page = max(0, min(page, total_pages - 1))
 
@@ -418,10 +424,14 @@ def admin_handler(bot):
             text += f"Total Users: {total}\n\n"
             
             for u in page_items:
+                # Escape special characters
+                first_name = str(u.get('first_name', 'N/A')).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                username = str(u.get('username', 'N/A')).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                
                 text += (
-                    f"ID: {u['id']} | Telegram: {u['telegram_id']}\n"
-                    f"Name: {u['first_name']} | Username: @{u['username']}\n"
-                    f"─" * 40 + "\n"
+                    f"ID: {u['id']} | TG: {u['telegram_id']}\n"
+                    f"Name: {first_name} | @{username}\n"
+                    f"──────────────────\n"
                 )
             
             kb = InlineKeyboardMarkup()
@@ -432,12 +442,12 @@ def admin_handler(bot):
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_users:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
-            kb.add(InlineKeyboardButton("🏠 Admin Panel", callback_data="admin:panel"))
+            kb.add(InlineKeyboardButton("🔄 Refresh", callback_data="admin:list_users:0"))
 
-            bot.edit_message_text(
-                text,
+            # SEND NEW MESSAGE instead of editing
+            bot.send_message(
                 call.message.chat.id,
-                call.message.message_id,
+                text,
                 parse_mode="Markdown",
                 reply_markup=kb
             )
@@ -450,9 +460,9 @@ def admin_handler(bot):
             )
 
     # -------------------------
-    # LIST ALL ADMIN MESSAGES
+    # LIST ALL ADMIN MESSAGES - FIXED (Pagination)
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "admin:list_messages")
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_messages"))
     def list_admin_messages(call):
         try:
             messages = get_all_admin_messages(limit=200)
@@ -469,44 +479,56 @@ def admin_handler(bot):
             # Count unhandled messages
             unhandled_count = sum(1 for m in messages if not m['handled'])
             
-            text = f"💬 *User Messages*\n\n"
-            text += f"Total Messages: {len(messages)}\n"
-            text += f"⚠️ Unhandled: {unhandled_count}\n\n"
+            # Pagination
+            parts = call.data.split(":")
+            page = int(parts[2]) if len(parts) > 2 else 0
+            page_size = 5  # Small page size since messages can be long
+            total = len(messages)
+            total_pages = (total + page_size - 1) // page_size
+            page = max(0, min(page, total_pages - 1))
+
+            start = page * page_size
+            end = start + page_size
+            page_items = messages[start:end]
             
-            for msg in messages:
+            text = f"💬 *User Messages* (Page {page + 1}/{total_pages})\n\n"
+            text += f"Total: {total} | ⚠️ Unhandled: {unhandled_count}\n\n"
+            
+            for msg in page_items:
                 status = "🔴 NEW" if not msg['handled'] else "✅ Handled"
                 user_info = f"@{msg['username']}" if msg['username'] else f"ID: {msg['telegram_id']}"
                 date = str(msg.get('created_at', 'N/A'))[:10]
                 
-                # Truncate message if too long
-                message_preview = msg['message_text'][:100]
-                if len(msg['message_text']) > 100:
+                # Truncate message if too long and escape special chars
+                message_text = str(msg['message_text']).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+                message_preview = message_text[:80]
+                if len(message_text) > 80:
                     message_preview += "..."
                 
-                entry = (
+                text += (
                     f"{status} | {user_info}\n"
                     f"📝 {message_preview}\n"
                     f"🕐 {date}\n"
                     f"──────────────────\n"
                 )
-                
-                # Send in chunks to avoid 4096 char limit
-                if len(text) + len(entry) > 3500:
-                    bot.send_message(
-                        call.message.chat.id,
-                        text,
-                        parse_mode="Markdown"
-                    )
-                    text = ""
-                
-                text += entry
             
-            if text:
-                bot.send_message(
-                    call.message.chat.id,
-                    text,
-                    parse_mode="Markdown"
-                )
+            kb = InlineKeyboardMarkup()
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_messages:{page - 1}"))
+            if end < total:
+                nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_messages:{page + 1}"))
+            if nav_buttons:
+                kb.add(*nav_buttons)
+            kb.add(InlineKeyboardButton("🔄 Refresh", callback_data="admin:list_messages:0"))
+            
+            # SEND NEW MESSAGE instead of editing
+            bot.send_message(
+                call.message.chat.id,
+                text,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
         
         except Exception as e:
             bot.send_message(
