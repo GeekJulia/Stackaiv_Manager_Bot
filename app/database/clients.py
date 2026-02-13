@@ -16,6 +16,9 @@ pool = ConnectionPool(
     conninfo=DATABASE_URL,
     min_size=1,
     max_size=10,
-    timeout=50,
+    timeout=10,
+    max_lifetime=1800,
     max_idle=300,
+    reconnect_timeout=10,
+    kwargs={"connect_timeout": 5}
 )
