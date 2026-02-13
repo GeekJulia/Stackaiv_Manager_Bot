@@ -10,8 +10,10 @@ from ..database.queries import (
     count_active_programs,
     activate_program,
     user_has_program,
-    get_user_program_info
+    get_user_program_info,
+    remove_duplicate_courses,
 )
+from .notes import get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
 
 user_sessions = {}
@@ -894,6 +896,44 @@ def start_handler(bot):
             )
             user_sessions.pop(user_id, None)
 
+    @bot.message_handler(commands=['cleanup'])
+    def cleanup_duplicates(message):
+        """Admin command to remove duplicate courses"""
+        user_id = message.from_user.id
+        
+        # Send loading message
+        loading_msg_id = send_loading_message(bot, message.chat.id, "⏳ *Cleaning up duplicates...*")
+        
+        try:
+            program_id = get_active_program_id(user_id)
+            if not program_id:
+                edit_message_safe(
+                    bot,
+                    message.chat.id,
+                    loading_msg_id,
+                    "❌ No program found.",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            # Remove duplicates
+            count = safe_db_operation(remove_duplicate_courses, 0, program_id)
+            
+            edit_message_safe(
+                bot,
+                message.chat.id,
+                loading_msg_id,
+                f"✅ *Cleanup Complete!*\n\n{count} duplicate course(s) removed.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            edit_message_safe(
+                bot,
+                message.chat.id,
+                loading_msg_id,
+                f"❌ Error: {str(e)}",
+                parse_mode="Markdown"
+            )
     # -------------------------
     # Back to Start Handler
     # -------------------------

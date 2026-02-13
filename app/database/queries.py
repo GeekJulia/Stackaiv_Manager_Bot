@@ -73,14 +73,47 @@ def save_courses(program_id, course_codes):
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             for code in course_codes:
+                # Check if course already exists for this program
                 cursor.execute("""
-                    INSERT INTO courses (program_id, course_code)
-                    VALUES (%s, %s)
-                    RETURNING id
+                    SELECT id FROM courses 
+                    WHERE program_id = %s AND course_code = %s
                 """, (program_id, code))
-                ids.append(cursor.fetchone()[0])
+                
+                existing = cursor.fetchone()
+                if existing:
+                    # Course already exists, use existing ID
+                    ids.append(existing[0])
+                else:
+                    # Insert new course
+                    cursor.execute("""
+                        INSERT INTO courses (program_id, course_code)
+                        VALUES (%s, %s)
+                        RETURNING id
+                    """, (program_id, code))
+                    ids.append(cursor.fetchone()[0])
             conn.commit()
     return ids
+
+def remove_duplicate_courses(program_id):
+    """Remove duplicate course codes for a program, keeping only the first occurrence"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            # Find and delete duplicates, keeping the oldest (lowest ID)
+            cursor.execute("""
+                DELETE FROM courses
+                WHERE id IN (
+                    SELECT id
+                    FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (PARTITION BY program_id, course_code ORDER BY id) AS rn
+                        FROM courses
+                        WHERE program_id = %s
+                    ) t
+                    WHERE t.rn > 1
+                )
+            """, (program_id,))
+            conn.commit()
+            return cursor.rowcount  # Returns number of duplicates removed
 
 
 def get_resource_types():
