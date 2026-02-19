@@ -1,7 +1,7 @@
 import os
 from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
-
+#debugging server failure
 load_dotenv()
 
 DATABASE_URL = (
