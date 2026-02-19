@@ -19,7 +19,7 @@ DATABASE_URL = (
 
 def create_pool():
     return ConnectionPool(
-        conninfo=DATABASE_URL + "&pgbouncer=true",
+        conninfo=DATABASE_URL,
         min_size=1,       # ⬇ Reduced - Supabase has connection limits
         max_size=3,       # ⬇ Reduced - be conservative
         timeout=30,
