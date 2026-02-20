@@ -1,3 +1,24 @@
+import os
+from psycopg_pool import ConnectionPool
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = (
+    f"postgresql://{os.getenv('DB_USER')}:"
+    f"{os.getenv('DB_PASSWORD')}@"
+    f"{os.getenv('DB_HOST')}:"
+    f"{os.getenv('DB_PORT')}/"
+    f"{os.getenv('DB_DATABASE')}?sslmode=require"
+)
+
+pool = ConnectionPool(
+    conninfo=DATABASE_URL,
+    min_size=1,
+    max_size=10,
+    timeout=50,
+    max_idle=300,
+)
 # import os
 # import threading
 # import logging
@@ -74,27 +95,3 @@
 # # Start both threads — neither blocks the import
 # threading.Thread(target=_initialize_pool, daemon=True).start()
 # threading.Thread(target=_keep_alive, daemon=True).start()
-import os
-from psycopg_pool import ConnectionPool
-from dotenv import load_dotenv
-
-load_dotenv()
-
-DATABASE_URL = (
-    f"postgresql://{os.getenv('DB_USER')}:"
-    f"{os.getenv('DB_PASSWORD')}@"
-    f"{os.getenv('DB_HOST')}:"
-    f"{os.getenv('DB_PORT')}/"
-    f"{os.getenv('DB_DATABASE')}?sslmode=require"
-)
-
-pool = ConnectionPool(
-    conninfo=DATABASE_URL,
-    min_size=1,
-    max_size=10,
-    timeout=50,
-    max_lifetime=1800,
-    max_idle=300,
-    reconnect_timeout=10,
-    kwargs={"connect_timeout": 5}
-)
