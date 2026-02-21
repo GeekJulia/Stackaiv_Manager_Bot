@@ -56,8 +56,8 @@ def safe_db_operation(func, fallback_value=None, *args, **kwargs):
         "could not connect",
         "server closed",
     )
-
-    def attempt():
+# heat production
+    def attempt(): 
         try:
             return func(*args, **kwargs)
         except DatabaseTimeoutError:
