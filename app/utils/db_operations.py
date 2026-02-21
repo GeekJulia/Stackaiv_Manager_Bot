@@ -1,4 +1,3 @@
-import time
 import threading
 from functools import wraps
 
@@ -7,7 +6,9 @@ class DatabaseTimeoutError(Exception):
     pass
 
 def with_db_timeout(timeout_seconds=10):
-    """Decorator to add timeout to database operations"""
+    """
+    Decorator to add timeout to database operations
+    """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -37,55 +38,15 @@ def with_db_timeout(timeout_seconds=10):
         return wrapper
     return decorator
 
-
 def safe_db_operation(func, fallback_value=None, *args, **kwargs):
     """
-    Safely execute a database operation with one silent retry.
-    
-    The first attempt after a period of inactivity may hit a stale/cold
-    connection. We catch that specific case, wait briefly, then retry once
-    before surfacing any error to the user.
+    Safely execute a database operation with proper error handling
     """
-    RETRYABLE_PHRASES = (
-        "connection",
-        "timeout",
-        "closed",
-        "broken pipe",
-        "eof detected",
-        "ssl",
-        "could not connect",
-        "server closed",
-    )
-# heat production
-    def attempt(): 
-        try:
-            return func(*args, **kwargs)
-        except DatabaseTimeoutError:
-            raise  # Never swallow explicit timeouts — let caller handle
-        except Exception as e:
-            raise e
-
     try:
-        return attempt()
-
+        return func(*args, **kwargs)
     except DatabaseTimeoutError:
-        raise  # Propagate immediately, no retry
-
-    except Exception as first_error:
-        error_msg = str(first_error).lower()
-        is_connection_error = any(phrase in error_msg for phrase in RETRYABLE_PHRASES)
-
-        if is_connection_error:
-            print(f"[DB] Connection error on first attempt ({func.__name__}): {first_error}. Retrying in 2s...")
-            time.sleep(2)  # Brief pause to let pool establish a fresh connection
-            try:
-                return attempt()
-            except DatabaseTimeoutError:
-                raise
-            except Exception as second_error:
-                print(f"[DB] Retry also failed ({func.__name__}): {second_error}")
-                raise second_error  # Raise so start.py shows error to user
-        else:
-            # Non-connection error (e.g. bad query, constraint violation) — don't retry
-            print(f"Database error in {func.__name__}: {first_error}")
-            raise
+        raise
+    except Exception as e:
+        # Log the error (in production, use proper logging)
+        print(f"Database error in {func.__name__}: {e}")
+        raise
