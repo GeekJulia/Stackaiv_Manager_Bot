@@ -23,7 +23,7 @@ batch_messages = {}  # {chat_id: message_id} - stores the batch prompt message_i
 
 def groups_handler(bot):
     
-    def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
+    def send_loading_message(bot, chat_id, text="Please wait..."):
         """Send a loading message and return its message_id"""
         msg = bot.send_message(chat_id, text, parse_mode="Markdown")
         return msg.message_id
@@ -51,7 +51,7 @@ def groups_handler(bot):
                 kb = InlineKeyboardMarkup()
                 kb.add(
                     InlineKeyboardButton(
-                        "🔧 Setup Group",
+                        "Setup Group",
                         callback_data="group:setup"
                     )
                 )
@@ -59,12 +59,12 @@ def groups_handler(bot):
                 bot.send_message(
                     message.chat.id,
                     (
-                        "👋 *Hello everyone!*\n\n"
+                        "Hello everyone!\n\n"
                         "I'm your academic resource management bot.\n\n"
                         "I help you:\n"
-                        "• 📁 Organize course materials\n"
-                        "• 📚 Track shared resources\n"
-                        "• ✅ Prevent duplicate uploads\n\n"
+                        "• Organize course materials\n"
+                        "• Track shared resources\n"
+                        "• Prevent duplicate uploads\n\n"
                         "Click below to set up this group."
                     ),
                     parse_mode="Markdown",
@@ -81,7 +81,7 @@ def groups_handler(bot):
         if message.chat.type not in ['group', 'supergroup']:
             bot.send_message(
                 message.chat.id,
-                "❌ *This command is only for group chats!*\n\n"
+                "This command is only for group chats!\n\n"
                 "Please add me to your group chat and use this command there.",
                 parse_mode="Markdown"
             )
@@ -91,7 +91,7 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
-                "🔧 Setup Group",
+                "Setup Group",
                 callback_data="group:setup"
             )
         )
@@ -123,9 +123,9 @@ def groups_handler(bot):
         bot.send_message(
             call.message.chat.id,
             (
-                "🎓 *Group Setup*\n\n"
+                "Group Setup\n\n"
                 "Please send your *Program ID*.\n\n"
-                "💡 Get your Program ID by sending /whoami to me in private chat."
+                "Get your Program ID by sending /whoami to me in private chat."
             ),
             parse_mode="Markdown"
         )
@@ -142,7 +142,7 @@ def groups_handler(bot):
         loading_msg_id = send_loading_message(
             bot,
             chat_id,
-            "⏳ *Setting up group...*"
+            "Setting up group..."
         )
         
         try:
@@ -152,7 +152,7 @@ def groups_handler(bot):
                 bot,
                 chat_id,
                 loading_msg_id,
-                "❌ Invalid Program ID. Please send a valid number.",
+                "Invalid Program ID. Please send a valid number.",
                 parse_mode="Markdown"
             )
             return
@@ -166,7 +166,7 @@ def groups_handler(bot):
                     bot,
                     chat_id,
                     loading_msg_id,
-                    "❌ Program ID not found. Please check and try again.",
+                    "Program ID not found. Please check and try again.",
                     parse_mode="Markdown"
                 )
                 # Clear session on error
@@ -182,10 +182,10 @@ def groups_handler(bot):
                     chat_id,
                     loading_msg_id,
                     (
-                        "✅ *Group Setup Complete!*\n\n"
-                        f"📚 Program: *{program['program_name']}*\n"
-                        f"🎓 Level: *{program['level']}*\n"
-                        f"🏫 College: *{program['college']}*\n\n"
+                        "Group Setup Complete!\n\n"
+                        f"Program: *{program['program_name']}*\n"
+                        f"Level: *{program['level']}*\n"
+                        f"College: *{program['college']}*\n\n"
                         "You can now share files and I'll track them automatically!\n\n"
                         "📎 Just upload files with course codes in the filename "
                         "(e.g., `MAT111_notes.pdf` or `CSC 234 slides.pptx`)"
@@ -197,7 +197,7 @@ def groups_handler(bot):
                     bot,
                     chat_id,
                     loading_msg_id,
-                    "❌ Failed to save group configuration. Please try again.",
+                    "Failed to save group configuration. Please try again.",
                     parse_mode="Markdown"
                 )
             
@@ -209,7 +209,7 @@ def groups_handler(bot):
                 bot,
                 chat_id,
                 loading_msg_id,
-                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                "System is busy. Please try again in a moment.",
                 parse_mode="Markdown"
             )
             # Clear session on error
@@ -220,7 +220,7 @@ def groups_handler(bot):
                 bot,
                 chat_id,
                 loading_msg_id,
-                "❌ An error occurred during setup. Please try again with /setupgroup",
+                "An error occurred during setup. Please try again with /setupgroup",
                 parse_mode="Markdown"
             )
             # Clear session on error
@@ -275,7 +275,7 @@ def groups_handler(bot):
             if not program_id:
                 bot.send_message(
                     chat_id,
-                    "❌ This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
+                    "This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
                     parse_mode="Markdown"
                 )
                 return
@@ -284,14 +284,14 @@ def groups_handler(bot):
             if not courses:
                 bot.send_message(
                     chat_id,
-                    "⚠️ No courses are registered for this program yet. Please register courses in the program before uploading files.",
+                    "No courses are registered for this program yet. Please register courses in the program before uploading files.",
                     parse_mode="Markdown"
                 )
                 return
         except DatabaseTimeoutError:
             bot.send_message(
                 chat_id,
-                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                "System is busy. Please try again in a moment.",
                 parse_mode="Markdown"
             )
             return
@@ -375,7 +375,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="📚 *Select the course for this file:*",
+            text="Select the course for this file:",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -422,7 +422,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text="📂 *What resource type should this be added to?*",
+            text="What resource type should this be added to?",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -438,18 +438,18 @@ def groups_handler(bot):
         queue = batch_queues[chat_id]
         
         # Build file list text
-        file_list = "📎 *Files queued for upload:*\n\n"
+        file_list = "Files queued for upload:\n\n"
         for i, f in enumerate(queue, 1):
-            detected = f['course_code'] if f['course_code'] else "❓ No course detected"
+            detected = f['course_code'] if f['course_code'] else "No course detected"
             file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
         
-        file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
-        file_list += "📚 Select course for all files:"
+        file_list += f"\n{len(queue)} file(s) ready\n\n"
+        file_list += "Select course for all files:"
         
         # Build keyboard - ONLY "Select Course" and "Cancel"
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("📚 Select Course", callback_data="batch:course"))
-        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
+        kb.add(InlineKeyboardButton("Select Course", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("Cancel", callback_data="batch:cancel"))
         
         # Send batch prompt
         msg = bot.send_message(
@@ -495,7 +495,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="📚 *Select the course for all files:*",
+            text="Select the course for all files:",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -526,7 +526,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="📂 *Select the resource type for all files:*",
+            text="*Select the resource type for all files:*",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -568,9 +568,9 @@ def groups_handler(bot):
                     break
         
         queue = batch_queues[chat_id]
-        file_list = f"📎 *{len(queue)} files ready to upload*\n\n"
-        file_list += f"📚 **Course:** `{course['course_code'] if course else 'Not selected'}`\n"
-        file_list += f"📂 **Type:** `{resource_type['name'] if resource_type else 'Not selected'}`\n\n"
+        file_list = f"*{len(queue)} files ready to upload*\n\n"
+        file_list += f"**Course:** `{course['course_code'] if course else 'Not selected'}`\n"
+        file_list += f"**Type:** `{resource_type['name'] if resource_type else 'Not selected'}`\n\n"
         file_list += "Files:\n"
         for i, f in enumerate(queue, 1):
             file_list += f"  {i}. `{f['file_name']}`\n"
@@ -578,10 +578,10 @@ def groups_handler(bot):
         # Now show "Process All" button
         kb = InlineKeyboardMarkup()
         kb.add(
-            InlineKeyboardButton("✅ Process All", callback_data="batch:process"),
-            InlineKeyboardButton("⬅️ Back", callback_data="batch:back_to_type")
+            InlineKeyboardButton("Process All", callback_data="batch:process"),
+            InlineKeyboardButton("Back", callback_data="batch:back")
         )
-        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
+        kb.add(InlineKeyboardButton("Cancel", callback_data="batch:cancel"))
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -608,12 +608,12 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         for r in resource_types:
             kb.add(InlineKeyboardButton(r['name'], callback_data=f"batch_type:{r['id']}"))
-        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("⬅Back", callback_data="batch:course"))
         
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="📂 *Select the resource type for all files:*",
+            text="*Select the resource type for all files:*",
             parse_mode="Markdown",
             reply_markup=kb
         )
@@ -632,17 +632,17 @@ def groups_handler(bot):
         
         # Back to initial prompt
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("📚 Select Course", callback_data="batch:course"))
-        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="batch:cancel"))
+        kb.add(InlineKeyboardButton("Select Course", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("Cancel", callback_data="batch:cancel"))
         
         queue = batch_queues[chat_id]
         file_list = "📎 *Files queued for upload:*\n\n"
         for i, f in enumerate(queue, 1):
-            detected = f['course_code'] if f['course_code'] else "❓ No course detected"
+            detected = f['course_code'] if f['course_code'] else "No course detected"
             file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
         
-        file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
-        file_list += "📚 Select course for all files:"
+        file_list += f"\n*{len(queue)} file(s) ready*\n\n"
+        file_list += "Select course for all files:"
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -671,7 +671,7 @@ def groups_handler(bot):
         if not course_id or not resource_type_id:
             bot.answer_callback_query(
                 call.id,
-                "⚠️ Please select both course and resource type",
+                "Please select both course and resource type",
                 show_alert=True
             )
             return
@@ -685,7 +685,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text=f"⏳ *Processing {len(queue)} file(s)...*",
+            text=f"Processing {len(queue)} file(s)...",
             parse_mode="Markdown"
         )
         
@@ -745,13 +745,13 @@ def groups_handler(bot):
         
         # Show result by editing the same message
         approver_username = call.from_user.username or call.from_user.first_name
-        result_msg = f"✅ *Batch Upload Complete*\n\n"
-        result_msg += f"📚 Course: `{course['course_code'] if course else 'Unknown'}`\n"
-        result_msg += f"📂 Resource Type: `{resource_type['name'] if resource_type else 'Unknown'}`\n\n"
-        result_msg += f"✔️ {success_count} file(s) added\n"
+        result_msg = f"Batch Upload Complete\n\n"
+        result_msg += f"Course: `{course['course_code'] if course else 'Unknown'}`\n"
+        result_msg += f"Resource Type: `{resource_type['name'] if resource_type else 'Unknown'}`\n\n"
+        result_msg += f"{success_count} file(s) added\n"
         if duplicate_count > 0:
-            result_msg += f"⏭️ {duplicate_count} file(s) skipped (already exist)\n"
-        result_msg += f"\n👤 Approved by: @{approver_username}"
+            result_msg += f"{duplicate_count} file(s) skipped (already exist)\n"
+        result_msg += f"\nApproved by: @{approver_username}"
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -775,7 +775,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="❌ *Batch upload cancelled*",
+            text="Batch upload cancelled",
             parse_mode="Markdown"
         )
         
@@ -810,7 +810,7 @@ def groups_handler(bot):
         if is_duplicate:
             bot.send_message(
                 chat_id,
-                "✅ *Already Added*",
+                "Already Added",
                 parse_mode="Markdown"
             )
         else:
@@ -831,7 +831,7 @@ def groups_handler(bot):
             
             bot.send_message(
                 chat_id,
-                f"✅ *Added and Approved by* @{approver_username}",
+                f"Added and Approved by @{approver_username}",
                 parse_mode="Markdown"
             )
         
