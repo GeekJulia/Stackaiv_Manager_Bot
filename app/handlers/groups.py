@@ -12,33 +12,17 @@ from ..database.queries import (
     save_approval
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
-
-group_sessions = {}
+from ..utils.sessions import TTLDict
+from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
+group_sessions = TTLDict()
 # Sessions are keyed by f"{chat_id}_{message_id}" to support concurrent uploads
 
 # Batch upload handling
-batch_queues = {}  # {chat_id: [file_dict1, file_dict2, ...]}
-batch_timers = {}  # {chat_id: threading.Timer}
-batch_messages = {}  # {chat_id: message_id} - stores the batch prompt message_id
+batch_queues = TTLDict(cleanup_interval_seconds=600)  # {chat_id: [file_dict1, file_dict2, ...]}
+batch_timers = TTLDict(cleanup_interval_seconds=600)  # {chat_id: threading.Timer}
+batch_messages = TTLDict(cleanup_interval_seconds=600)  # {chat_id: message_id} - stores the batch prompt message_id
 
 def groups_handler(bot):
-    
-    def send_loading_message(bot, chat_id, text="Please wait..."):
-        """Send a loading message and return its message_id"""
-        msg = bot.send_message(chat_id, text, parse_mode="Markdown")
-        return msg.message_id
-    
-    def edit_message_safe(bot, chat_id, message_id, text, **kwargs):
-        """Safely edit a message or send new if edit fails"""
-        try:
-            bot.edit_message_text(
-                text,
-                chat_id=chat_id,
-                message_id=message_id,
-                **kwargs
-            )
-        except:
-            bot.send_message(chat_id, text, **kwargs)
     
     # -------------------------
     # Bot Added to Group - FIXED

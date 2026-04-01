@@ -10,38 +10,53 @@ load_dotenv()
 # Save or Update Telegram User
 # -------------------------
 def save_user(telegram_id, username, first_name):
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            query = """
-            INSERT INTO users (telegram_id, username, first_name)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (telegram_id) DO UPDATE
-            SET username = EXCLUDED.username,
-                first_name = EXCLUDED.first_name
-            RETURNING id;
-            """
-            cursor.execute(query, (telegram_id, username, first_name))
-            conn.commit()
-            return cursor.fetchone()[0]
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                query = """
+                INSERT INTO users (telegram_id, username, first_name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (telegram_id) DO UPDATE
+                SET username = EXCLUDED.username,
+                    first_name = EXCLUDED.first_name
+                RETURNING id;
+                """
+                cursor.execute(query, (telegram_id, username, first_name))
+                conn.commit()
+                return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"ERROR: save_user failed - {str(e)}")
+        raise
 
 # -------------------------
 # Save Program Registration
 # -------------------------
 def save_program(level, college, program_name, user_id):
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            query = """
-            INSERT INTO programs (level, college, name, created_by)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (created_by) DO UPDATE
-            SET level = EXCLUDED.level,
-                college = EXCLUDED.college,
-                name = EXCLUDED.name
-            RETURNING id;
-            """
-            cursor.execute(query, (level, college, program_name, user_id))
-            conn.commit()
-            return cursor.fetchone()[0]
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                query = """
+                INSERT INTO programs (level, college, name, created_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (created_by) DO UPDATE
+                SET is_active = CASE 
+                        WHEN programs.level != EXCLUDED.level OR 
+                             programs.college != EXCLUDED.college OR 
+                             programs.name != EXCLUDED.name 
+                        THEN FALSE 
+                        ELSE programs.is_active 
+                    END,
+                    level = EXCLUDED.level,
+                    college = EXCLUDED.college,
+                    name = EXCLUDED.name
+                RETURNING id;
+                """
+                cursor.execute(query, (level, college, program_name, user_id))
+                conn.commit()
+                return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"ERROR: save_program failed - {str(e)}")
+        raise
     
 def get_user_program_id(telegram_id):
     """Get program ID for a user, returns None if user has no program"""
@@ -69,30 +84,33 @@ def get_user_program_info(telegram_id):
 
 
 def save_courses(program_id, course_codes):
-    ids = []
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            for code in course_codes:
-                # Check if course already exists for this program
-                cursor.execute("""
-                    SELECT id FROM courses 
-                    WHERE program_id = %s AND course_code = %s
-                """, (program_id, code))
-                
-                existing = cursor.fetchone()
-                if existing:
-                    # Course already exists, use existing ID
-                    ids.append(existing[0])
-                else:
-                    # Insert new course
-                    cursor.execute("""
-                        INSERT INTO courses (program_id, course_code)
-                        VALUES (%s, %s)
-                        RETURNING id
-                    """, (program_id, code))
-                    ids.append(cursor.fetchone()[0])
-            conn.commit()
-    return ids
+    if not course_codes:
+        return []
+    
+    try:
+        # Batch insert utilizing ON CONFLICT to avoid sequential N+1 database querying.
+        placeholders = ", ".join(["(%s, %s)"] * len(course_codes))
+        
+        flat_values = []
+        for code in course_codes:
+            flat_values.extend([program_id, code])
+            
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                query = f"""
+                    INSERT INTO courses (program_id, course_code)
+                    VALUES {placeholders}
+                    ON CONFLICT (program_id, course_code) DO UPDATE
+                    SET course_code = EXCLUDED.course_code
+                    RETURNING id;
+                """
+                cursor.execute(query, flat_values)
+                results = cursor.fetchall()
+                conn.commit()
+                return [r[0] for r in results]
+    except Exception as e:
+        print(f"ERROR: save_courses failed - {str(e)}")
+        raise
 
 def remove_duplicate_courses(program_id):
     """Remove duplicate course codes for a program, keeping only the first occurrence"""
@@ -124,15 +142,28 @@ def get_resource_types():
 
 
 def save_course_resource_types(course_id, resource_type_ids):
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            for r_id in resource_type_ids:
-                cursor.execute("""
+    if not resource_type_ids:
+        return
+        
+    try:
+        placeholders = ", ".join(["(%s, %s)"] * len(resource_type_ids))
+        
+        flat_values = []
+        for r_id in resource_type_ids:
+            flat_values.extend([course_id, r_id])
+            
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                query = f"""
                     INSERT INTO course_resource_types (course_id, resource_type_id)
-                    VALUES (%s, %s)
-                    ON CONFLICT DO NOTHING
-                """, (course_id, r_id))
-            conn.commit()
+                    VALUES {placeholders}
+                    ON CONFLICT DO NOTHING;
+                """
+                cursor.execute(query, flat_values)
+                conn.commit()
+    except Exception as e:
+        print(f"ERROR: save_course_resource_types failed - {str(e)}")
+        raise
 
 def get_courses_by_program(program_id):
     with pool.connection() as conn:
@@ -308,18 +339,22 @@ def get_program_by_id(program_id):
 
 def save_group(telegram_chat_id, program_id):
     """Save or update group chat with program ID"""
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            query = """
-            INSERT INTO groups (telegram_chat_id, program_id)
-            VALUES (%s, %s)
-            ON CONFLICT (telegram_chat_id) DO UPDATE
-            SET program_id = EXCLUDED.program_id
-            RETURNING id;
-            """
-            cursor.execute(query, (telegram_chat_id, program_id))
-            conn.commit()
-            return cursor.fetchone()[0]
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                query = """
+                INSERT INTO groups (telegram_chat_id, program_id)
+                VALUES (%s, %s)
+                ON CONFLICT (telegram_chat_id) DO UPDATE
+                SET program_id = EXCLUDED.program_id
+                RETURNING id;
+                """
+                cursor.execute(query, (telegram_chat_id, program_id))
+                conn.commit()
+                return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"ERROR: save_group failed - {str(e)}")
+        raise
 
 def get_group_program_id(telegram_chat_id):
     """Get program ID for a group chat"""

@@ -15,8 +15,10 @@ from ..database.queries import (
 )
 from .notes import get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
+from ..utils.sessions import TTLDict
+from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
 
-user_sessions = {}
+user_sessions = TTLDict()
 
 COLLEGES = {
     "CST": [
@@ -46,27 +48,6 @@ COLLEGES = {
         "MARKETING", "MASS COMMUNICATION"
     ]
 }
-
-# -------------------------
-# Helper Functions
-# -------------------------
-
-def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
-    """Send a loading message and return its message_id"""
-    msg = bot.send_message(chat_id, text, parse_mode="Markdown")
-    return msg.message_id
-
-def edit_message_safe(bot, chat_id, message_id, text, **kwargs):
-    """Safely edit a message or send new if edit fails"""
-    try:
-        bot.edit_message_text(
-            text,
-            chat_id=chat_id,
-            message_id=message_id,
-            **kwargs
-        )
-    except:
-        bot.send_message(chat_id, text, **kwargs)
 
 # -------------------------
 # Start Handler

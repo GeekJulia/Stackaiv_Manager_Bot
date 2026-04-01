@@ -172,6 +172,8 @@ def handle_payment_webhook(data):
 def generate_payment_reference(user_id, program_id):
     """Generate a unique payment reference for Paystack"""
     import time
+    import uuid
     timestamp = int(time.time())
-    reference = f"STACKAIV_U{user_id}_P{program_id}_{timestamp}"
+    random_str = uuid.uuid4().hex[:6].upper()
+    reference = f"STACKAIV_U{user_id}_P{program_id}_{timestamp}_{random_str}"
     return reference

@@ -46,3 +46,20 @@ def safe_edit_or_send(bot, chat_id, message_id, text, parse_mode="Markdown", rep
         **kwargs
     )
 
+def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
+    """Send a loading message and return its message_id"""
+    msg = bot.send_message(chat_id, text, parse_mode="Markdown")
+    return msg.message_id
+
+
+def escape_markdown(text):
+    """
+    Escape special characters for Telegram MarkdownV2 format.
+    Characters that need escaping: _ * [ ] ( ) ~ ` > # + - = | { } . !
+    """
+    import re
+    if text is None:
+        return "N/A"
+    text = str(text)
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)

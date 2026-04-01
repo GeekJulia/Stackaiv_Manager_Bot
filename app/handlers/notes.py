@@ -8,48 +8,16 @@ from ..database.queries import (
     save_course_resource_types
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
+from ..utils.sessions import TTLDict, get_active_program_id
+from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
 
-notes_sessions = {}
-
-# ✅ NEW HELPER FUNCTION - GET ACTIVE PROGRAM ID
-def get_active_program_id(user_id):
-    """
-    Get program ID for a user - checks session first, then fallback to created program.
-    This allows users to access programs via Program ID (not just programs they created).
-    """
-    from .start import user_sessions
-    
-    # First check session for program_id
-    session = user_sessions.get(user_id, {})
-    if "program_id" in session:
-        return session["program_id"]
-    
-    # Fallback to user's created program
-    return safe_db_operation(get_user_program_id, None, user_id)
+notes_sessions = TTLDict()
 
 def notes_handler(bot):
     """
     Handles course registration and resource type selection.
     Flow: add_courses_info → receive_courses → confirm_courses → select_resources → confirm_resources → submit
     """
-    
-    def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
-        """Send a loading message and return its message_id"""
-        msg = bot.send_message(chat_id, text, parse_mode="Markdown")
-        return msg.message_id
-    
-    def edit_message_safe(bot, chat_id, message_id, text, **kwargs):
-        """Safely edit a message or send new if edit fails"""
-        try:
-            bot.edit_message_text(
-                text,
-                chat_id=chat_id,
-                message_id=message_id,
-                **kwargs
-            )
-        except:
-            bot.send_message(chat_id, text, **kwargs)
-
     # -------------------------
     # Start Notes/Courses Handler - ✅ FIXED
     # -------------------------

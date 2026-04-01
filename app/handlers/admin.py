@@ -12,8 +12,10 @@ from ..database.queries import (
     get_all_admin_messages,
     get_admin_messages_count
 )
-
-admin_sessions = {}
+from ..utils.sessions import TTLDict
+from ..utils.messages import escape_markdown
+from ..utils.pagination import paginate_items
+admin_sessions = TTLDict()
 
 # Replace with your actual admin Telegram ID
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -98,6 +100,10 @@ def admin_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_transactions"))
     def list_transactions(call):
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         try:
             transactions = get_all_transactions()
 
@@ -110,18 +116,8 @@ def admin_handler(bot):
                 )
                 return
 
-            # Determine page from callback data
-            parts = call.data.split(":")
-            page = int(parts[2]) if len(parts) > 2 else 0
-            page_size = 10
-            total_pages = (total + page_size - 1) // page_size
-            page = max(0, min(page, total_pages - 1))
-
-            # Slice the transactions (most recent first)
             recent = transactions[-100:] if total > 100 else transactions
-            start = page * page_size
-            end = start + page_size
-            page_items = recent[start:end]
+            page_items, page, total_pages = paginate_items(call.data, recent, 10)
 
             text = f"📊 *Recent Transactions* (Page {page + 1}/{total_pages})\n\n"
 
@@ -142,7 +138,7 @@ def admin_handler(bot):
             nav_buttons = []
             if page > 0:
                 nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_transactions:{page - 1}"))
-            if end < len(recent):
+            if page + 1 < total_pages:
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_transactions:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
@@ -168,6 +164,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:fetch_transaction")
     def fetch_transaction_handler(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions[user_id] = {"stage": "awaiting_transaction_id"}
 
         bot.send_message(
@@ -226,6 +226,10 @@ def admin_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_programs"))
     def list_programs(call):
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         try:
             programs = get_all_programs()
 
@@ -239,15 +243,7 @@ def admin_handler(bot):
                 )
                 return
 
-            parts = call.data.split(":")
-            page = int(parts[2]) if len(parts) > 2 else 0
-            page_size = 5
-            total_pages = (total + page_size - 1) // page_size
-            page = max(0, min(page, total_pages - 1))
-
-            start = page * page_size
-            end = start + page_size
-            page_items = programs[start:end]
+            page_items, page, total_pages = paginate_items(call.data, programs, 5)
 
             text = f"🏫 *All Programs* (Page {page + 1}/{total_pages})\n\n"
 
@@ -273,7 +269,7 @@ def admin_handler(bot):
             nav_buttons = []
             if page > 0:
                 nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_programs:{page - 1}"))
-            if end < total:
+            if page + 1 < total_pages:
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_programs:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
@@ -299,6 +295,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:delete_program")
     def delete_program_handler(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions[user_id] = {"stage": "awaiting_program_id_delete"}
 
         bot.send_message(
@@ -366,6 +366,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:confirm_delete")
     def execute_delete_program(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         session = admin_sessions.get(user_id, {})
         program_id = session.get("program_id")
 
@@ -390,6 +394,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:cancel_delete")
     def cancel_delete_program(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions.pop(user_id, None)
 
         bot.send_message(
@@ -403,6 +411,10 @@ def admin_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_users"))
     def list_users(call):
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         try:
             users = get_all_users()
 
@@ -415,15 +427,7 @@ def admin_handler(bot):
                 )
                 return
 
-            parts = call.data.split(":")
-            page = int(parts[2]) if len(parts) > 2 else 0
-            page_size = 10
-            total_pages = (total + page_size - 1) // page_size
-            page = max(0, min(page, total_pages - 1))
-
-            start = page * page_size
-            end = start + page_size
-            page_items = users[start:end]
+            page_items, page, total_pages = paginate_items(call.data, users, 10)
 
             text = f"👥 *All Users* (Page {page + 1}/{total_pages})\n\n"
             text += f"Total Users: {total}\n\n"
@@ -442,7 +446,7 @@ def admin_handler(bot):
             nav_buttons = []
             if page > 0:
                 nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_users:{page - 1}"))
-            if end < total:
+            if page + 1 < total_pages:
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_users:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
@@ -467,6 +471,10 @@ def admin_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("admin:list_messages"))
     def list_admin_messages(call):
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         try:
             messages = get_all_admin_messages(limit=200)
 
@@ -481,27 +489,10 @@ def admin_handler(bot):
 
             unhandled_count = sum(1 for m in messages if not m['handled'])
 
-            parts = call.data.split(":")
-            page = int(parts[2]) if len(parts) > 2 else 0
-            page_size = 5
-            total = len(messages)
-            total_pages = (total + page_size - 1) // page_size
-            page = max(0, min(page, total_pages - 1))
-
-            start = page * page_size
-            end = start + page_size
-            page_items = messages[start:end]
+            page_items, page, total_pages = paginate_items(call.data, messages, 5)
 
             text = f"💬 *User Messages* (Page {page + 1}/{total_pages})\n\n"
             text += f"Total: {total} | ⚠️ Unhandled: {unhandled_count}\n\n"
-
-            def escape_markdown(text):
-                if text is None:
-                    return "N/A"
-                text = str(text)
-                for char in ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
-                    text = text.replace(char, '\\' + char)
-                return text
 
             for msg in page_items:
                 status = "🔴 NEW" if not msg['handled'] else "✅ Handled"
@@ -528,7 +519,7 @@ def admin_handler(bot):
             nav_buttons = []
             if page > 0:
                 nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin:list_messages:{page - 1}"))
-            if end < total:
+            if page + 1 < total_pages:
                 nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"admin:list_messages:{page + 1}"))
             if nav_buttons:
                 kb.add(*nav_buttons)
@@ -554,6 +545,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:broadcast")
     def broadcast_handler(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions[user_id] = {"stage": "awaiting_broadcast_message"}
 
         bot.send_message(
@@ -610,6 +605,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:confirm_broadcast")
     def execute_broadcast(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         session = admin_sessions.get(user_id, {})
         broadcast_text = session.get("broadcast_text")
 
@@ -668,6 +667,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:cancel_broadcast")
     def cancel_broadcast(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions.pop(user_id, None)
 
         bot.send_message(
@@ -682,6 +685,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:stop_bot")
     def stop_bot_handler(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions[user_id] = {"stage": "confirming_stop"}
 
         kb = InlineKeyboardMarkup()
@@ -702,6 +709,9 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:confirm_stop")
     def execute_stop_bot(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
 
         try:
             bot.send_message(
@@ -725,6 +735,10 @@ def admin_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == "admin:cancel_stop")
     def cancel_stop_bot(call):
         user_id = call.from_user.id
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+
         admin_sessions.pop(user_id, None)
 
         bot.send_message(

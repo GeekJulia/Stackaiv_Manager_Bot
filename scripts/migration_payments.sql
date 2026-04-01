@@ -223,3 +223,10 @@
 ALTER TABLE courses 
 ADD CONSTRAINT unique_program_course 
 UNIQUE (program_id, course_code);
+
+-- ========================================
+-- PERFORMANCE INDEX EXAMPLES
+-- ========================================
+CREATE INDEX IF NOT EXISTS idx_resources_course_type ON resources (course_id, resource_type_id);
+CREATE INDEX IF NOT EXISTS idx_courses_program_code ON courses (program_id, course_code);
+CREATE INDEX IF NOT EXISTS idx_resources_lower_filename ON resources (LOWER(file_name));

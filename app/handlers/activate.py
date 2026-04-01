@@ -6,9 +6,10 @@ from ..database.queries import (
     get_program_activation_status,
     get_courses_by_program
 )
-from ..services.payments import initialize_transaction, generate_payment_reference
+from ..services.payments import initialize_transaction, generate_payment_reference, verify_transaction
+from ..utils.sessions import TTLDict
 
-activation_sessions = {}
+activation_sessions = TTLDict()
 
 def resolve_program_from_chat(call_or_message):
         chat_id = call_or_message.chat.id
@@ -94,6 +95,9 @@ def activation_handler(bot):
                 "💰 *Activation Fee:* ₦3,000.00\n\n"
                 "This fee activates your resource sharing space, allowing you and your classmates "
                 "to upload and access course materials.\n\n"
+                f"⚠️ *IMPORTANT:* You are activating the *{program_info['program_name']} ({program_info['level']})* Hub. "
+                "This activation is specific to these details. Modifying your program details later will void the current activation "
+                "and require another ₦3,000 fee.\n\n"
                 "Would you like to proceed with the payment?"
             )
             
@@ -374,22 +378,26 @@ def activation_handler(bot):
                 parse_mode="Markdown"
             )
             
-            # Verification is typically done via webhook, but this allows manual check
-            program_id = resolve_program_from_chat(message)
-            is_active = get_program_activation_status(program_id)
+            # Call Paystack API directly for real-time verification
+            result = verify_transaction(reference)
             
-            if is_active:
+            if result.get("status") and result.get("verified"):
+                from ..services.payments import handle_payment_webhook # simulate webhook locally
+                webhook_data = {"data": {"reference": reference, "amount": 300000}} # 3000 * 100 kobo
+                handle_payment_webhook(webhook_data)
+                
                 bot.send_message(
                     message.chat.id,
-                    "✅ *Payment Verified!*\n\n"
-                    "Your program is now activated. You can proceed to add courses.",
+                    "✅ *Payment Verified Successfully!*\n\n"
+                    "Your program has been activated. You can proceed to add courses.",
                     parse_mode="Markdown"
                 )
             else:
+                error_msg = result.get('error', 'Payment not successful yet.')
                 bot.send_message(
                     message.chat.id,
-                    "⏳ *Payment Still Processing*\n\n"
-                    "Your payment is being verified. Please wait a moment and try again.",
+                    f"⏳ *Verification Status*\n\n{error_msg}\n\n"
+                    "If you just paid, wait a few seconds and try again.",
                     parse_mode="Markdown"
                 )
         

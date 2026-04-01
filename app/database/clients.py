@@ -15,7 +15,7 @@ DATABASE_URL = (
 pool = ConnectionPool(
     conninfo=DATABASE_URL,
     min_size=1,
-    max_size=10,
+    max_size=20,
     timeout=50,
     max_idle=300,
 )
