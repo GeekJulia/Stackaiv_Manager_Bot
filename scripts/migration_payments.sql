@@ -220,9 +220,9 @@
 -- -- 4. The resource files are NOT deleted from Telegram, only the database records
 -- -- ========================================
 -- Add unique constraint to prevent duplicate course codes per program
-ALTER TABLE courses 
-ADD CONSTRAINT unique_program_course 
-UNIQUE (program_id, course_code);
+-- ALTER TABLE courses 
+-- ADD CONSTRAINT unique_program_course 
+-- UNIQUE (program_id, course_code);
 
 -- ========================================
 -- PERFORMANCE INDEX EXAMPLES
