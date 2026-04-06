@@ -278,7 +278,9 @@ def check_program_exists(level, college, program_name):
             cursor.execute("""
                 SELECT id, level, college, name, created_by
                 FROM programs
-                WHERE level = %s AND college = %s AND name = %s
+                WHERE LOWER(level) = LOWER(%s) 
+                  AND LOWER(college) = LOWER(%s) 
+                  AND LOWER(name) = LOWER(%s)
                 LIMIT 1
             """, (level, college, program_name))
             r = cursor.fetchone()

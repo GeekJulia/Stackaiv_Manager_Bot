@@ -100,6 +100,11 @@ def start_handler(bot):
 
         name, program_name, level, college, career = parts
 
+        # Normalize Level (e.g. "400" -> "400 Level")
+        if "Level" not in level:
+            # If it's just a number, append ' Level'
+            level = f"{level} Level" if level.isdigit() else level
+
         loading_msg_id = send_loading_message(bot, message.chat.id, " *Processing registration...*")
 
         try:
