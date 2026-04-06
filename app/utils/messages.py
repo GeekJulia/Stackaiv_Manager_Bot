@@ -46,7 +46,7 @@ def safe_edit_or_send(bot, chat_id, message_id, text, parse_mode="Markdown", rep
         **kwargs
     )
 
-def send_loading_message(bot, chat_id, text="⏳ Please wait..."):
+def send_loading_message(bot, chat_id, text=" Please wait..."):
     """Send a loading message and return its message_id"""
     msg = bot.send_message(chat_id, text, parse_mode="Markdown")
     return msg.message_id

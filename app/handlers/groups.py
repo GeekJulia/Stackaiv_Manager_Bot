@@ -171,7 +171,7 @@ def groups_handler(bot):
                         f"Level: *{program['level']}*\n"
                         f"College: *{program['college']}*\n\n"
                         "You can now share files and I'll track them automatically!\n\n"
-                        "📎 Just upload files with course codes in the filename "
+                        " Just upload files with course codes in the filename "
                         "(e.g., `MAT111_notes.pdf` or `CSC 234 slides.pptx`)"
                     ),
                     parse_mode="Markdown"
@@ -474,7 +474,7 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         for c in courses:
             kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"batch_course:{c['id']}"))
-        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="batch:back"))
+        kb.add(InlineKeyboardButton(" Back", callback_data="batch:back"))
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -505,7 +505,7 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         for r in resource_types:
             kb.add(InlineKeyboardButton(r['name'], callback_data=f"batch_type:{r['id']}"))
-        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton(" Back", callback_data="batch:course"))
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -592,7 +592,7 @@ def groups_handler(bot):
         kb = InlineKeyboardMarkup()
         for r in resource_types:
             kb.add(InlineKeyboardButton(r['name'], callback_data=f"batch_type:{r['id']}"))
-        kb.add(InlineKeyboardButton("⬅Back", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("Back", callback_data="batch:course"))
         
         bot.edit_message_text(
             chat_id=chat_id,
@@ -620,7 +620,7 @@ def groups_handler(bot):
         kb.add(InlineKeyboardButton("Cancel", callback_data="batch:cancel"))
         
         queue = batch_queues[chat_id]
-        file_list = "📎 *Files queued for upload:*\n\n"
+        file_list = " *Files queued for upload:*\n\n"
         for i, f in enumerate(queue, 1):
             detected = f['course_code'] if f['course_code'] else "No course detected"
             file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"

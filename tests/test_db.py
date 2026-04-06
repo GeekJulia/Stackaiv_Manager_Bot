@@ -19,7 +19,7 @@ print(f"Attempting to connect with config: {DB_CONFIG}")
 
 try:
     conn = psycopg2.connect(**DB_CONFIG)
-    print("✅ Database connection successful!")
+    print(" Database connection successful!")
     
     with conn.cursor() as cursor:
         # Check if payments table exists
@@ -30,7 +30,7 @@ try:
             );
         """)
         table_exists = cursor.fetchone()[0]
-        print(f"✅ Payments table exists: {table_exists}")
+        print(f" Payments table exists: {table_exists}")
         
         if table_exists:
             # Check table structure
@@ -40,14 +40,14 @@ try:
                 WHERE table_name = 'payments'
                 ORDER BY ordinal_position;
             """)
-            print("\n📋 Payments table structure:")
+            print("\n Payments table structure:")
             for col_name, col_type in cursor.fetchall():
                 print(f"   - {col_name}: {col_type}")
             
             # Check for any existing payments
             cursor.execute("SELECT COUNT(*) FROM payments;")
             count = cursor.fetchone()[0]
-            print(f"\n📊 Total payments in database: {count}")
+            print(f"\n Total payments in database: {count}")
             
             if count > 0:
                 cursor.execute("""
@@ -56,16 +56,16 @@ try:
                     ORDER BY created_at DESC 
                     LIMIT 10;
                 """)
-                print("\n📝 Recent payments:")
+                print("\n Recent payments:")
                 print(f"{'ID':<5} {'Program':<10} {'Reference':<50} {'Amount':<10} {'Status':<10} {'Created':<25}")
                 print("-" * 110)
                 for id, prog_id, ref, amount, status, created_at in cursor.fetchall():
                     print(f"{id:<5} {prog_id:<10} {ref:<50} {amount:<10} {status:<10} {str(created_at):<25}")
     
     conn.close()
-    print("\n✅ All checks passed!")
+    print("\n All checks passed!")
     
 except Exception as e:
-    print(f"❌ Error: {e}")
+    print(f" Error: {e}")
     import traceback
     traceback.print_exc()

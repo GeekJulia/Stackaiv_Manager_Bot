@@ -50,21 +50,21 @@ def activation_handler(bot):
                 if courses:
                     courses_list = "\n".join([f"• {c['course_code']}" for c in courses])
                     message_text = (
-                        "✅ *Your program space is activated!*\n\n"
-                        f"📚 *Registered Courses:*\n{courses_list}\n\n"
+                        " *Your program space is activated!*\n\n"
+                        f" *Registered Courses:*\n{courses_list}\n\n"
                         "You can now proceed to add resources or access the resource hub."
                     )
                 else:
                     message_text = (
-                        "✅ *Your program space is activated!*\n\n"
-                        "📚 *No courses added yet.*\n\n"
+                        " *Your program space is activated!*\n\n"
+                        " *No courses added yet.*\n\n"
                         "You can proceed to add courses and start sharing/accessing resources."
                     )
                 
                 kb = InlineKeyboardMarkup()
-                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
-                kb.add(InlineKeyboardButton("📚 Resource Hub", callback_data="action:goto_space"))
-                kb.add(InlineKeyboardButton("⬅️ Back", callback_data="action:activate_program"))
+                kb.add(InlineKeyboardButton(" Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton(" Resource Hub", callback_data="action:goto_space"))
+                kb.add(InlineKeyboardButton(" Back", callback_data="action:activate_program"))
                 
                 try:
                     bot.edit_message_text(
@@ -84,18 +84,18 @@ def activation_handler(bot):
                 return
             
             kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("💳 Proceed with Payment", callback_data="activate:pay"))
-            kb.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="activate:cancel"))
+            kb.add(InlineKeyboardButton(" Proceed with Payment", callback_data="activate:pay"))
+            kb.add(InlineKeyboardButton(" Cancel Registration", callback_data="activate:cancel"))
             
             message_text = (
-                "🎓 *Activate Your Program Space*\n\n"
-                f"📘 Program: *{program_info['program_name']}*\n"
-                f"📊 Level: *{program_info['level']}*\n"
-                f"🏫 College: *{program_info['college']}*\n\n"
-                "💰 *Activation Fee:* ₦3,000.00\n\n"
+                " *Activate Your Program Space*\n\n"
+                f" Program: *{program_info['program_name']}*\n"
+                f" Level: *{program_info['level']}*\n"
+                f" College: *{program_info['college']}*\n\n"
+                " *Activation Fee:* ₦3,000.00\n\n"
                 "This fee activates your resource sharing space, allowing you and your classmates "
                 "to upload and access course materials.\n\n"
-                f"⚠️ *IMPORTANT:* You are activating the *{program_info['program_name']} ({program_info['level']})* Hub. "
+                f" *IMPORTANT:* You are activating the *{program_info['program_name']} ({program_info['level']})* Hub. "
                 "This activation is specific to these details. Modifying your program details later will void the current activation "
                 "and require another ₦3,000 fee.\n\n"
                 "Would you like to proceed with the payment?"
@@ -120,7 +120,7 @@ def activation_handler(bot):
         except Exception as e:
             bot.send_message(
                 call.message.chat.id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
 
@@ -143,7 +143,7 @@ def activation_handler(bot):
             # Ask for email
             bot.send_message(
                 call.message.chat.id,
-                "📧 *Please provide your email address*\n\n"
+                " *Please provide your email address*\n\n"
                 "We need a valid email address to process your payment through Paystack.\n\n"
                 "Example: `john@gmail.com` or `jane@yahoo.com`",
                 parse_mode="Markdown"
@@ -152,7 +152,7 @@ def activation_handler(bot):
         except Exception as e:
             bot.send_message(
                 call.message.chat.id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
 
@@ -169,7 +169,7 @@ def activation_handler(bot):
             if "@" not in user_email or "." not in user_email:
                 bot.send_message(
                     message.chat.id,
-                    "❌ *Invalid email format*\n\n"
+                    " *Invalid email format*\n\n"
                     "Please provide a valid email address (e.g., user@example.com)",
                     parse_mode="Markdown"
                 )
@@ -192,7 +192,7 @@ def activation_handler(bot):
             # Show processing message
             bot.send_message(
                 message.chat.id,
-                "🔄 *Processing payment...*",
+                " *Processing payment...*",
                 parse_mode="Markdown"
             )
             
@@ -207,19 +207,19 @@ def activation_handler(bot):
                 auth_url = result["authorization_url"]
                 
                 kb = InlineKeyboardMarkup()
-                kb.add(InlineKeyboardButton("💳 Pay Now", url=auth_url))
-                kb.add(InlineKeyboardButton("✅ Payment Complete?", callback_data="activate:check_status"))
-                kb.add(InlineKeyboardButton("❌ Cancel", callback_data="activate:cancel"))
+                kb.add(InlineKeyboardButton(" Pay Now", url=auth_url))
+                kb.add(InlineKeyboardButton(" Payment Complete?", callback_data="activate:check_status"))
+                kb.add(InlineKeyboardButton(" Cancel", callback_data="activate:cancel"))
                 
                 bot.send_message(
                     message.chat.id,
                     (
-                        "💳 *Ready to Complete Payment*\n\n"
+                        " *Ready to Complete Payment*\n\n"
                         "Click the button below to proceed to Paystack's secure checkout page.\n\n"
                         "You'll be redirected to pay ₦3,000 via:\n"
-                        "• 💳 Card (Visa, Mastercard)\n"
-                        "• 🏦 Bank Transfer\n"
-                        "• 📱 USSD\n\n"
+                        "•  Card (Visa, Mastercard)\n"
+                        "•  Bank Transfer\n"
+                        "•  USSD\n\n"
                         "After successful payment, click *'Payment Complete?'* to verify your payment."
                     ),
                     parse_mode="Markdown",
@@ -229,7 +229,7 @@ def activation_handler(bot):
                 error_msg = result.get('error', 'Unknown error')
                 bot.send_message(
                     message.chat.id,
-                    f"❌ *Payment Initialization Failed*\n\n{error_msg}",
+                    f" *Payment Initialization Failed*\n\n{error_msg}",
                     parse_mode="Markdown"
                 )
                 activation_sessions.pop(user_id, None)
@@ -237,7 +237,7 @@ def activation_handler(bot):
         except Exception as e:
             bot.send_message(
                 message.chat.id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
             activation_sessions.pop(user_id, None)
@@ -252,7 +252,7 @@ def activation_handler(bot):
         
         bot.send_message(
             call.message.chat.id,
-            "❌ *Registration Cancelled*\n\n"
+            " *Registration Cancelled*\n\n"
             "Your program registration has been cancelled. "
             "You can start over anytime with /start",
             parse_mode="Markdown"
@@ -270,7 +270,7 @@ def activation_handler(bot):
             # Show processing message
             loading_msg = bot.send_message(
                 call.message.chat.id,
-                "⏳ *Verifying payment...*",
+                " *Verifying payment...*",
                 parse_mode="Markdown"
             )
             
@@ -287,24 +287,24 @@ def activation_handler(bot):
                 if courses:
                     courses_list = "\n".join([f"• {c['course_code']}" for c in courses])
                     message_text = (
-                        "✅ *Payment Verified!*\n\n"
-                        "🎉 Your program space is now activated!\n\n"
-                        f"🆔 *Program ID:* `{program_id}`\n\n"
-                        f"📚 *Registered Courses:*\n{courses_list}\n\n"
+                        " *Payment Verified!*\n\n"
+                        " Your program space is now activated!\n\n"
+                        f" *Program ID:* `{program_id}`\n\n"
+                        f" *Registered Courses:*\n{courses_list}\n\n"
                         "You can now proceed to add resources or access the resource hub."
                     )
                 else:
                     message_text = (
-                        "✅ *Payment Verified!*\n\n"
-                        "🎉 Your program space is now activated!\n\n"
-                        f"🆔 *Program ID:* `{program_id}`\n\n"
-                        "📚 *No courses added yet.*\n\n"
+                        " *Payment Verified!*\n\n"
+                        " Your program space is now activated!\n\n"
+                        f" *Program ID:* `{program_id}`\n\n"
+                        " *No courses added yet.*\n\n"
                         "You can now proceed to add courses and start sharing/accessing resources."
                     )
                 
                 kb = InlineKeyboardMarkup()
-                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
-                kb.add(InlineKeyboardButton("📚 Resource Hub", callback_data="action:goto_space"))
+                kb.add(InlineKeyboardButton(" Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton(" Resource Hub", callback_data="action:goto_space"))
                 
                 # Delete loading message
                 try:
@@ -331,7 +331,7 @@ def activation_handler(bot):
                 # Payment still processing
                 try:
                     bot.edit_message_text(
-                        "⏳ *Payment Still Processing*\n\n"
+                        " *Payment Still Processing*\n\n"
                         "Your payment is being verified by Paystack. "
                         "This usually takes a few seconds to a few minutes.\n\n"
                         "Please wait a moment and try again.",
@@ -345,7 +345,7 @@ def activation_handler(bot):
         except Exception as e:
             bot.send_message(
                 call.message.chat.id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
 
@@ -365,7 +365,7 @@ def activation_handler(bot):
             if len(args) < 2:
                 bot.send_message(
                     message.chat.id,
-                    "⚠️ Usage: `/verify_payment <reference>`",
+                    " Usage: `/verify_payment <reference>`",
                     parse_mode="Markdown"
                 )
                 return
@@ -374,7 +374,7 @@ def activation_handler(bot):
             
             bot.send_message(
                 message.chat.id,
-                "🔄 *Verifying payment...*",
+                " *Verifying payment...*",
                 parse_mode="Markdown"
             )
             
@@ -388,7 +388,7 @@ def activation_handler(bot):
                 
                 bot.send_message(
                     message.chat.id,
-                    "✅ *Payment Verified Successfully!*\n\n"
+                    " *Payment Verified Successfully!*\n\n"
                     "Your program has been activated. You can proceed to add courses.",
                     parse_mode="Markdown"
                 )
@@ -396,7 +396,7 @@ def activation_handler(bot):
                 error_msg = result.get('error', 'Payment not successful yet.')
                 bot.send_message(
                     message.chat.id,
-                    f"⏳ *Verification Status*\n\n{error_msg}\n\n"
+                    f" *Verification Status*\n\n{error_msg}\n\n"
                     "If you just paid, wait a few seconds and try again.",
                     parse_mode="Markdown"
                 )
@@ -404,6 +404,6 @@ def activation_handler(bot):
         except Exception as e:
             bot.send_message(
                 message.chat.id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )

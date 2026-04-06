@@ -24,11 +24,11 @@ gunicorn_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_logger.handlers
 app.logger.setLevel(logging.INFO)
 
-# ✅ ADD ERROR HANDLING FOR BOT IMPORT
+#  ADD ERROR HANDLING FOR BOT IMPORT
 try:
     from .main import bot
 except Exception as e:
-    logger.error(f"❌ CRITICAL: Failed to import bot from main: {e}", exc_info=True)
+    logger.error(f" CRITICAL: Failed to import bot from main: {e}", exc_info=True)
     bot = None  # Set to None so we can check later
 
 from .services.payments import handle_payment_webhook

@@ -2,32 +2,32 @@
 
 Stackaiv is a comprehensive Telegram bot that manages academic resources for students organized by program, level, and course. Students register with their college and program, then share/access course materials within their program community.
 
-## ✨ Features
+##  Features
 
 ### Core Features
-- 🎓 **Program Registration** - Level, College, and Program selection
-- 📚 **Course Management** - Register and manage courses
-- 📁 **Resource Sharing** - Upload and download course materials (notes, PDFs, code, etc.)
-- 👥 **Community Spaces** - Program-based Telegram groups
-- 💳 **Payment Integration** - Paystack activation fee (₦3,000)
-- 👨‍💼 **Admin Panel** - Complete management interface
+-  **Program Registration** - Level, College, and Program selection
+-  **Course Management** - Register and manage courses
+-  **Resource Sharing** - Upload and download course materials (notes, PDFs, code, etc.)
+-  **Community Spaces** - Program-based Telegram groups
+-  **Payment Integration** - Paystack activation fee (₦3,000)
+-  **Admin Panel** - Complete management interface
 
 ### Payment & Activation (NEW)
-- 💰 **Secure Payments** - Paystack integration with webhook verification
-- 🔐 **Automatic Activation** - Program activation on successful payment
-- 📊 **Transaction Tracking** - Complete payment history
-- 🛑 **Admin Controls** - Manage transactions, programs, and users
+-  **Secure Payments** - Paystack integration with webhook verification
+-  **Automatic Activation** - Program activation on successful payment
+-  **Transaction Tracking** - Complete payment history
+-  **Admin Controls** - Manage transactions, programs, and users
 
 ### Admin Functions (NEW - `/admin7105`)
-1. 📊 List all transactions
-2. 🔍 Fetch transaction details
-3. 🏫 View all programs
-4. 🗑️ Delete programs
-5. 👥 List users
-6. 📢 Broadcast messages
-7. 🛑 Stop bot
+1.  List all transactions
+2.  Fetch transaction details
+3.  View all programs
+4.  Delete programs
+5.  List users
+6.  Broadcast messages
+7.  Stop bot
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 ```bash
@@ -73,7 +73,7 @@ Ngrok = ngrok http 5000
 python -m app.webhook
 ```
 
-## 📖 Documentation
+##  Documentation
 
 ### Getting Started
 - [Quick Setup Guide](QUICK_SETUP.md) - 5-minute setup
@@ -89,7 +89,7 @@ python -m app.webhook
 - [Index](INDEX.md) - Master index of all files
 - [Database Migration](scripts/migration_payments.sql) - SQL schema
 
-## 💳 Payment Flow
+##  Payment Flow
 
 ```
 User Registration
@@ -107,7 +107,7 @@ Program Activated
 Add Courses & Resources
 ```
 
-## 🎯 User Commands
+##  User Commands
 
 ```
 /start              - Begin registration
@@ -116,18 +116,18 @@ Add Courses & Resources
 /verify_payment     - Manual payment verification
 ```
 
-## 👨‍💼 Admin Commands
+##  Admin Commands
 
 Send `/admin7105` to access:
-- 📊 List all transactions
-- 🔍 Fetch transaction by ID
-- 🏫 View all programs
-- 🗑️ Delete program
-- 👥 List users
-- 📢 Broadcast message
-- 🛑 Stop bot
+-  List all transactions
+-  Fetch transaction by ID
+-  View all programs
+-  Delete program
+-  List users
+-  Broadcast message
+-  Stop bot
 
-## 🏗️ Architecture
+##  Architecture
 
 ### Project Structure
 ```
@@ -166,17 +166,17 @@ scripts/
 - `payments` - Transaction records
 - `program_activations` - Activation status
 
-## 🔒 Security Features
+##  Security Features
 
-- ✅ HMAC-SHA512 webhook signature verification
-- ✅ Admin ID validation
-- ✅ Payment amount validation (₦3,000)
-- ✅ Unique payment references
-- ✅ SQL injection prevention
-- ✅ Error handling & logging
-- ✅ Confirmation prompts for destructive operations
+-  HMAC-SHA512 webhook signature verification
+-  Admin ID validation
+-  Payment amount validation (₦3,000)
+-  Unique payment references
+-  SQL injection prevention
+-  Error handling & logging
+-  Confirmation prompts for destructive operations
 
-## 🧪 Testing
+##  Testing
 
 ### Test Paystack Card
 - Number: `4111 1111 1111 1111`
@@ -186,7 +186,7 @@ scripts/
 ### Test Amount
 - ₦3,000 (exactly)
 
-## 📊 Tech Stack
+##  Tech Stack
 
 - **Bot Framework**: python-telegram-bot 20.3
 - **Backend**: Python 3.7+
@@ -195,7 +195,7 @@ scripts/
 - **Webhook**: Flask
 - **Deployment**: Python + Gunicorn
 
-## 🛠️ Deployment
+##  Deployment
 
 ### Development
 ```bash
@@ -213,7 +213,7 @@ sudo systemctl start stackaiv-webhook.service
 gunicorn -w 1 -b 0.0.0.0:5000 app.webhook:app
 ```
 
-## 📋 Environment Variables
+##  Environment Variables
 
 ```env
 # Telegram
@@ -239,7 +239,7 @@ WEBHOOK_PORT=5000
 WEBHOOK_URL=https://yourdomain.com/paystack/webhook
 ```
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Common Issues
 
@@ -259,38 +259,38 @@ WEBHOOK_URL=https://yourdomain.com/paystack/webhook
 - Check DB credentials in .env
 - Confirm database exists: `psql -l`
 
-## 📚 Additional Resources
+##  Additional Resources
 
 - [Paystack API Documentation](https://paystack.com/docs/api)
 - [python-telegram-bot Documentation](https://pypi.org/project/python-telegram-bot/)
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [Flask Documentation](https://flask.palletsprojects.com/)
 
-## 📝 License
+##  License
 
 This project is part of the Stackaiv ecosystem.
 
-## 👥 Support
+##  Support
 
 For detailed documentation and troubleshooting:
 1. Read [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
 2. Check [VERIFICATION_CHECKLIST.md](VERIFICATION_CHECKLIST.md)
 3. Review [WORKFLOW_DIAGRAM.md](WORKFLOW_DIAGRAM.md)
 
-## 🎉 Recent Updates
+##  Recent Updates
 
 ### Version 1.0.0 (January 31, 2026)
-- ✅ Added Paystack payment integration
-- ✅ Added program activation workflow
-- ✅ Added comprehensive admin panel
-- ✅ Added webhook server
-- ✅ Added 11 new database functions
-- ✅ Complete documentation suite
+-  Added Paystack payment integration
+-  Added program activation workflow
+-  Added comprehensive admin panel
+-  Added webhook server
+-  Added 11 new database functions
+-  Complete documentation suite
 
 See [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) for full details.
 
 ---
 
 **Last Updated**: January 31, 2026  
-**Status**: ✅ Production Ready  
+**Status**:  Production Ready  
 **Version**: 1.0.0

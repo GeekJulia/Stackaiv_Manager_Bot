@@ -975,7 +975,7 @@ Refactor: Improve code structure
 
 ## License & Credits
 
-Built with ❤️ for Stackaiv  
+Built with  for Stackaiv  
 Python 3.7+ | Telegram Bot API | PostgreSQL | Paystack
 
 ---

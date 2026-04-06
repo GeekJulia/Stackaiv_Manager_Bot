@@ -36,14 +36,14 @@ def files_handler(bot):
         message_id = call.message.message_id
         
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("📧 Contact Admin", callback_data="hub:contact_admin"))
-        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="action:goto_space"))
+        kb.add(InlineKeyboardButton(" Contact Admin", callback_data="hub:contact_admin"))
+        kb.add(InlineKeyboardButton(" Back", callback_data="action:goto_space"))
         
         help_text = (
-            "ℹ️ *Help Guide*\n\n"
-            "📚 *All Courses* — View courses in your program\n"
-            "➕ *Add Resource* — Upload notes, slides, PDFs, etc\n"
-            "📥 *Get Resource* — Download resources shared by others\n\n"
+            " *Help Guide*\n\n"
+            " *All Courses* — View courses in your program\n"
+            " *Add Resource* — Upload notes, slides, PDFs, etc\n"
+            " *Get Resource* — Download resources shared by others\n\n"
             "Resources are organized by *course* and *type*.\n\n"
             "*Format:*\n"
             "• Send courses: `MAT 111, CSC 111` (comma-separated)\n"
@@ -70,12 +70,12 @@ def files_handler(bot):
         }
         
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("⬅️ Cancel", callback_data="hub:help"))
+        kb.add(InlineKeyboardButton(" Cancel", callback_data="hub:help"))
         
         try:
             bot.edit_message_text(
                 (
-                    "📧 *Contact Administrator*\n\n"
+                    " *Contact Administrator*\n\n"
                     "Please describe your issue or concern:\n\n"
                     "_Your message will be forwarded to the admin team._"
                 ),
@@ -88,7 +88,7 @@ def files_handler(bot):
             bot.send_message(
                 call.message.chat.id,
                 (
-                    "📧 *Contact Administrator*\n\n"
+                    " *Contact Administrator*\n\n"
                     "Please describe your issue or concern:"
                 ),
                 parse_mode="Markdown",
@@ -118,7 +118,7 @@ def files_handler(bot):
 
         bot.send_message(
             message.chat.id,
-            "✅ *Message Received*\n\n"
+            " *Message Received*\n\n"
             "Thank you for contacting us! The admin team will review your message shortly.\n\n"
             "We'll get back to you as soon as possible.",
             parse_mode="Markdown"
@@ -136,11 +136,11 @@ def files_handler(bot):
 
             bot.send_message(
                 message.chat.id,
-                "❌ Operation cancelled.\nYou're back in your resource hub."
+                " Operation cancelled.\nYou're back in your resource hub."
             )
 
     # -------------------------
-    # ALL COURSES (TEXT LIST) - ✅ FIXED
+    # ALL COURSES (TEXT LIST) -  FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:courses")
     def all_courses(call):
@@ -148,17 +148,17 @@ def files_handler(bot):
         loading_msg_id = send_loading_message(
             bot,
             call.message.chat.id,
-            "⏳ *Loading your courses...*"
+            " *Loading your courses...*"
         )
         
         try:
-            # ✅ USE NEW HELPER FUNCTION
+            #  USE NEW HELPER FUNCTION
             program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
                 courses = safe_db_operation(get_courses_by_program, [], program_id)
 
-            text = "📚 *Registered Courses*\n\n"
+            text = " *Registered Courses*\n\n"
             if courses:
                 for c in courses:
                     text += f"• {c['course_code']}\n"
@@ -178,7 +178,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                " *System is busy*\n\nPlease try again in a moment.",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -186,12 +186,12 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
 
     # -------------------------
-    # ADD RESOURCE → SELECT COURSE - ✅ FIXED
+    # ADD RESOURCE → SELECT COURSE -  FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:add")
     def add_resource_courses(call):
@@ -199,11 +199,11 @@ def files_handler(bot):
         loading_msg_id = send_loading_message(
             bot,
             call.message.chat.id,
-            "⏳ *Loading available courses...*"
+            " *Loading available courses...*"
         )
         
         try:
-            # ✅ USE NEW HELPER FUNCTION
+            #  USE NEW HELPER FUNCTION
             program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
@@ -214,7 +214,7 @@ def files_handler(bot):
                     bot,
                     call.message.chat.id,
                     loading_msg_id,
-                    "📚 *No Courses Found*\n\nYou need to add courses first before uploading resources.",
+                    " *No Courses Found*\n\nYou need to add courses first before uploading resources.",
                     parse_mode="Markdown"
                 )
                 return
@@ -226,7 +226,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                "📘 *Select a course:*",
+                " *Select a course:*",
                 parse_mode="Markdown",
                 reply_markup=kb,
             )
@@ -236,7 +236,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                " *System is busy*\n\nPlease try again in a moment.",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -244,7 +244,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
 
@@ -270,7 +270,7 @@ def files_handler(bot):
             bot,
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"📂 *Select resource type for {course['course_code']}:*",
+            text=f" *Select resource type for {course['course_code']}:*",
             parse_mode="Markdown",
             reply_markup=kb,
         )
@@ -304,7 +304,7 @@ def files_handler(bot):
             bot,
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="📎 Send the file or documents now (PDF, DOCX, etc).",
+            text=" Send the file or documents now (PDF, DOCX, etc).",
             parse_mode="Markdown",
         )
 
@@ -364,21 +364,21 @@ def files_handler(bot):
         queue = file_batch_queues[user_id]
         
         # Build file list text - use plain Markdown (not V2) for simplicity
-        file_list = "📎 *Files queued for upload:*\n\n"
+        file_list = " *Files queued for upload:*\n\n"
         for i, f in enumerate(queue, 1):
             course = get_course_info(f['course_id'])
             # Don't use backticks for filenames with special chars in Markdown
             # Just show them plain to avoid parsing issues
             file_list += f"{i}. {f['file_name']}\n   → {course['course_code']}\n"
         
-        file_list += f"\n✅ *{len(queue)} file(s) ready*\n\n"
+        file_list += f"\n *{len(queue)} file(s) ready*\n\n"
         file_list += "Review files above. Confirm to upload all."
         
         # Build keyboard
         kb = InlineKeyboardMarkup()
         kb.add(
-            InlineKeyboardButton("✅ Upload All", callback_data="fbatch:process"),
-            InlineKeyboardButton("❌ Cancel", callback_data="fbatch:cancel")
+            InlineKeyboardButton(" Upload All", callback_data="fbatch:process"),
+            InlineKeyboardButton(" Cancel", callback_data="fbatch:cancel")
         )
         
         # Send batch prompt with regular Markdown and error handling
@@ -421,7 +421,7 @@ def files_handler(bot):
                 print(f"ERROR sending batch prompt (fallback): {e2}")
 
     # -------------------------
-    # GET RESOURCE → SELECT COURSE - ✅ FIXED
+    # GET RESOURCE → SELECT COURSE -  FIXED
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data == "hub:get")
     def get_resource_course(call):
@@ -429,11 +429,11 @@ def files_handler(bot):
         loading_msg_id = send_loading_message(
             bot,
             call.message.chat.id,
-            "⏳ *Loading available courses...*"
+            " *Loading available courses...*"
         )
         
         try:
-            # ✅ USE NEW HELPER FUNCTION
+            #  USE NEW HELPER FUNCTION
             program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
@@ -444,7 +444,7 @@ def files_handler(bot):
                     bot,
                     call.message.chat.id,
                     loading_msg_id,
-                    "📚 *No Courses Found*\n\nYou need to add courses first before downloading resources.",
+                    " *No Courses Found*\n\nYou need to add courses first before downloading resources.",
                     parse_mode="Markdown"
                 )
                 return
@@ -456,7 +456,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                "📘 *Select a course:*",
+                " *Select a course:*",
                 parse_mode="Markdown",
                 reply_markup=kb,
             )
@@ -466,7 +466,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                "⏰ *System is busy*\n\nPlease try again in a moment.",
+                " *System is busy*\n\nPlease try again in a moment.",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -474,7 +474,7 @@ def files_handler(bot):
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
-                f"❌ Error: {str(e)}",
+                f" Error: {str(e)}",
                 parse_mode="Markdown"
             )
 
@@ -500,7 +500,7 @@ def files_handler(bot):
             bot,
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"📂 *Select resource type for {course['course_code']}:*",
+            text=f" *Select resource type for {course['course_code']}:*",
             parse_mode="Markdown",
             reply_markup=kb,
         )
@@ -529,7 +529,7 @@ def files_handler(bot):
         )
 
         # Build text exactly like groups.py does
-        text = "📁 *Available Resources*\n\n"
+        text = " *Available Resources*\n\n"
         
         if resources:
             for i, r in enumerate(resources, start=1):
@@ -539,7 +539,7 @@ def files_handler(bot):
             text += "No resources available.\n"
         
         text += (
-            "\n\n📥 *How to download:*\n"
+            "\n\n *How to download:*\n"
             "• Send: `Slot 1`\n"
             "• Send: `Slot 1, Slot 2, Slot 3` (comma-separated)\n"
             "• Send: `All` for everything"
@@ -559,12 +559,12 @@ def files_handler(bot):
         except Exception as e:
             print(f"ERROR sending slot list (Markdown failed): {e}")
             # Fallback to plain text
-            plain_text = "📁 Available Resources\n\n"
+            plain_text = " Available Resources\n\n"
             for i, r in enumerate(resources, start=1):
                 plain_text += f"{i}. {r['file_name']}\n"
             
             plain_text += (
-                "\n\n📥 How to download:\n"
+                "\n\n How to download:\n"
                 "• Send: Slot 1\n"
                 "• Send: Slot 1, Slot 2, Slot 3 (comma-separated)\n"
                 "• Send: All (for everything)"
@@ -598,7 +598,7 @@ def files_handler(bot):
             # Show loading indicator
             loading_msg = bot.send_message(
                 message.chat.id,
-                "⏳ *Downloading all resources...*",
+                " *Downloading all resources...*",
                 parse_mode="Markdown"
             )
             
@@ -626,7 +626,7 @@ def files_handler(bot):
         except ValueError:
             bot.send_message(
                 message.chat.id,
-                "❌ *Invalid format*\n\n"
+                " *Invalid format*\n\n"
                 "Use comma-separated format:\n"
                 "• `Slot 1`\n"
                 "• `Slot 1, Slot 2, Slot 3`\n"
@@ -647,7 +647,7 @@ def files_handler(bot):
         if not sent_any:
             bot.send_message(
                 message.chat.id,
-                "❌ No valid slot numbers found.",
+                " No valid slot numbers found.",
                 parse_mode="Markdown"
             )
             return
@@ -671,7 +671,7 @@ def files_handler(bot):
         processing_msg_id = send_loading_message(
             bot,
             call.message.chat.id,
-            f"⏳ *Processing {len(queue)} file(s)...*"
+            f" *Processing {len(queue)} file(s)...*"
         )
         
         # Process all files
@@ -714,12 +714,12 @@ def files_handler(bot):
                 error_count += 1
         
         # Show result
-        result_msg = f"✅ *Batch Upload Complete*\n\n"
-        result_msg += f"✔️ {success_count} file(s) uploaded\n"
+        result_msg = f" *Batch Upload Complete*\n\n"
+        result_msg += f" {success_count} file(s) uploaded\n"
         if duplicate_count > 0:
-            result_msg += f"⏭️ {duplicate_count} file(s) skipped (duplicates)\n"
+            result_msg += f" {duplicate_count} file(s) skipped (duplicates)\n"
         if error_count > 0:
-            result_msg += f"❌ {error_count} file(s) failed\n"
+            result_msg += f" {error_count} file(s) failed\n"
         result_msg += "\nYour resources are now available for your program community."
         
         edit_message_safe(
@@ -746,7 +746,7 @@ def files_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="❌ *Batch upload cancelled*",
+            text=" *Batch upload cancelled*",
             parse_mode="Markdown"
         )
         
