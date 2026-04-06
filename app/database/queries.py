@@ -9,19 +9,35 @@ load_dotenv()
 # -------------------------
 # Save or Update Telegram User
 # -------------------------
-def save_user(telegram_id, username, first_name):
+def save_user(telegram_id, username, first_name, career=None):
     try:
         with pool.connection() as conn:
             with conn.cursor() as cursor:
-                query = """
-                INSERT INTO users (telegram_id, username, first_name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (telegram_id) DO UPDATE
-                SET username = EXCLUDED.username,
-                    first_name = EXCLUDED.first_name
-                RETURNING id;
-                """
-                cursor.execute(query, (telegram_id, username, first_name))
+                # Use a try-except block just in case the migration hasn't run yet
+                try:
+                    query = """
+                    INSERT INTO users (telegram_id, username, first_name, career)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (telegram_id) DO UPDATE
+                    SET username = EXCLUDED.username,
+                        first_name = EXCLUDED.first_name,
+                        career = COALESCE(EXCLUDED.career, users.career)
+                    RETURNING id;
+                    """
+                    cursor.execute(query, (telegram_id, username, first_name, career))
+                except psycopg.errors.UndefinedColumn:
+                    # Fallback if career column doesn't exist yet
+                    conn.rollback()
+                    query = """
+                    INSERT INTO users (telegram_id, username, first_name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (telegram_id) DO UPDATE
+                    SET username = EXCLUDED.username,
+                        first_name = EXCLUDED.first_name
+                    RETURNING id;
+                    """
+                    cursor.execute(query, (telegram_id, username, first_name))
+                
                 conn.commit()
                 return cursor.fetchone()[0]
     except Exception as e:
@@ -31,6 +47,43 @@ def save_user(telegram_id, username, first_name):
 # -------------------------
 # Save Program Registration
 # -------------------------
+def get_user_info_by_telegram_id(telegram_id):
+    """Get basic user info from the users table"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("""
+                    SELECT id, username, first_name, career
+                    FROM users
+                    WHERE telegram_id = %s
+                """, (telegram_id,))
+                r = cursor.fetchone()
+                if r:
+                    return {
+                        "id": r[0],
+                        "username": r[1],
+                        "first_name": r[2],
+                        "career": r[3]
+                    }
+            except psycopg.errors.UndefinedColumn:
+                # Fallback if career column doesn't exist yet
+                conn.rollback()
+                cursor.execute("""
+                    SELECT id, username, first_name
+                    FROM users
+                    WHERE telegram_id = %s
+                """, (telegram_id,))
+                r = cursor.fetchone()
+                if r:
+                    return {
+                        "id": r[0],
+                        "username": r[1],
+                        "first_name": r[2],
+                        "career": None
+                    }
+            return None
+
+
 def save_program(level, college, program_name, user_id):
     try:
         with pool.connection() as conn:
