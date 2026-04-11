@@ -64,7 +64,6 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
     if creator and creator['telegram_id'] == chat_id:
         kb.add(InlineKeyboardButton(" 📊 Promote Hub Level", callback_data="hub:promote"))
 
-    kb.add(InlineKeyboardButton(" ➕ Add/Manage Courses", callback_data="notes:start"))
     kb.add(InlineKeyboardButton(" 🔄 Re-register (Reset)", callback_data="hub:reregister"))
     
     text = f" *{program['program_name']} {program['level']} Hub*\n"
