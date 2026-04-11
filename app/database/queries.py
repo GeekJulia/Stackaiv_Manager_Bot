@@ -1015,7 +1015,7 @@ def promote_program(program_id):
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             try:
-                cursor.execute("""
+                cursor.execute(r"""
                     UPDATE programs
                     SET level = (CAST(NULLIF(REGEXP_REPLACE(level, '\D', '', 'g'), '') AS INTEGER) + 100)::text || ' Level'
                     WHERE id = %s
@@ -1054,7 +1054,7 @@ def get_past_levels(program_id, current_level_str):
         current_level_int = int(''.join(filter(str.isdigit, current_level_str)))
         with pool.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("""
+                cursor.execute(r"""
                     SELECT DISTINCT academic_level
                     FROM courses
                     WHERE program_id = %s 
