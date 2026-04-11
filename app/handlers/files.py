@@ -9,10 +9,13 @@ from ..database.queries import (
     get_resource_types,
     save_resource,
     get_resources_by_course_and_type,
+    get_all_resources_by_course,
     get_course_info,
     check_duplicate_resource_by_type,
     save_resource_with_type_check,
     save_admin_message,
+    get_program_info,
+    check_archive_access
 )
 
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
@@ -437,7 +440,10 @@ def files_handler(bot):
             program_id = get_active_program_id(call.from_user.id)
             courses = []
             if program_id:
-                courses = safe_db_operation(get_courses_by_program, [], program_id)
+                # NEW: Fetch ONLY active level courses for the main Hub menu
+                program = safe_db_operation(get_program_info, None, program_id)
+                current_level = program['level'] if program else None
+                courses = safe_db_operation(get_courses_by_program, [], program_id, academic_level=current_level)
 
             if not courses:
                 edit_message_safe(
@@ -483,8 +489,29 @@ def files_handler(bot):
     # -------------------------
     @bot.callback_query_handler(func=lambda call: call.data.startswith("get:course:"))
     def get_resource_type(call):
+        user_id = call.from_user.id
         course_id = int(call.data.split(":")[2])
         resource_types = get_resource_types()
+
+        # ARCHIVE GATE CHECK
+        # If accessing via archives, they have an archive_bypass in session
+        from .start import user_sessions
+        session = user_sessions.get(user_id, {})
+        bypass_id = session.get('archive_bypass')
+        
+        if bypass_id != course_id:
+            # Check if this course belongs to a past level
+            course = safe_db_operation(get_course_info, None, course_id)
+            program_id = get_active_program_id(user_id)
+            program = safe_db_operation(get_program_info, None, program_id)
+            
+            if course and program and course.get('academic_level') != program['level']:
+                # Historical Course - Check payment
+                has_access = safe_db_operation(check_archive_access, False, user_id=user_id, target_level=course['academic_level'], target_course_id=course_id)
+                if not has_access:
+                    bot.answer_callback_query(call.id, "🔒 Historical level access required.", show_alert=True)
+                    # Redirect to archives prompt (handled in start.py)
+                    return
 
         file_sessions[call.from_user.id] = {
             "stage": "select_slot",
@@ -494,6 +521,9 @@ def files_handler(bot):
         course = get_course_info(course_id)
 
         kb = build_resource_type_keyboard(resource_types, callback_prefix="get:type")
+        
+        # Insert "ALL RESOURCES" button
+        kb.add(InlineKeyboardButton(" 📦 ALL RESOURCES", callback_data=f"get:all_resources:{course_id}"))
 
         # Replace the course selection message with resource type selection
         safe_edit_or_send(
@@ -504,6 +534,62 @@ def files_handler(bot):
             parse_mode="Markdown",
             reply_markup=kb,
         )
+
+    # -------------------------
+    # GET ALL RESOURCES INTERCEPT
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("get:all_resources:"))
+    def get_all_resources_confirm(call):
+        course_id = int(call.data.split(":")[2])
+        course = get_course_info(course_id)
+        
+        kb = InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            InlineKeyboardButton(" Yes, Send All", callback_data=f"get:all_resources_confirmed:{course_id}"),
+            InlineKeyboardButton(" Cancel", callback_data="action:goto_space")
+        )
+        
+        safe_edit_or_send(
+            bot,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=(f" ⚠️ *Warning: Downloading All Resources*\n\n"
+                  f"This will retrieve every single resource saved across all resource types for *{course['course_code']}*. "
+                  "This might flood your chat if there are many resources.\n\n"
+                  "Do you want to proceed?"),
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("get:all_resources_confirmed:"))
+    def get_all_resources_execute(call):
+        user_id = call.from_user.id
+        course_id = int(call.data.split(":")[2])
+        course = get_course_info(course_id)
+        
+        resources = safe_db_operation(get_all_resources_by_course, [], course_id)
+        
+        if not resources:
+            bot.answer_callback_query(call.id, f"No resources available for {course['course_code']}.", show_alert=True)
+            return
+            
+        loading_msg = bot.send_message(
+            call.message.chat.id,
+            f" *Downloading {len(resources)} resource(s) for {course['course_code']}...*",
+            parse_mode="Markdown"
+        )
+        
+        bot.delete_message(call.message.chat.id, call.message.message_id) # remove prompt
+        
+        for r in resources:
+            bot.send_document(call.message.chat.id, r["file_id"])
+            
+        try:
+            bot.delete_message(call.message.chat.id, loading_msg.message_id)
+        except Exception:
+            pass
+        
+        file_sessions.pop(user_id, None)
 
     # -------------------------
     # GET RESOURCE → SLOT SYSTEM

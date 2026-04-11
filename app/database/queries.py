@@ -6,6 +6,42 @@ from .clients import pool
 # Load environment variables
 load_dotenv()
 
+def ensure_schema():
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS program_id INTEGER REFERENCES programs(id);")
+                # Cohort migrations
+                cur.execute("ALTER TABLE programs ADD COLUMN IF NOT EXISTS graduation_year INTEGER;")
+                cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS semester VARCHAR(20) DEFAULT 'Alpha';")
+                cur.execute("ALTER TABLE courses ADD COLUMN IF NOT EXISTS academic_level VARCHAR(20);")
+                cur.execute("""
+                    UPDATE courses c
+                    SET academic_level = p.level
+                    FROM programs p
+                    WHERE c.program_id = p.id AND c.academic_level IS NULL;
+                """)
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS archive_subscriptions (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    access_type VARCHAR(20) NOT NULL,
+                    target_course_id INTEGER REFERENCES courses(id) ON DELETE CASCADE,
+                    target_level VARCHAR(20),
+                    payment_reference VARCHAR(100) UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """)
+                # Evolution of payments table
+                cur.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'hub_activation';")
+                cur.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS metadata JSONB;")
+                conn.commit()
+    except Exception as e:
+        print(f"Schema migration error (ignored): {e}")
+
+# Run schema migrations automatically
+ensure_schema()
+
 # -------------------------
 # Save or Update Telegram User
 # -------------------------
@@ -84,16 +120,16 @@ def get_user_info_by_telegram_id(telegram_id):
             return None
 
 
-def save_program(level, college, program_name, user_id):
+def save_program(level, college, program_name, user_id, graduation_year):
     try:
         with pool.connection() as conn:
             with conn.cursor() as cursor:
                 query = """
-                INSERT INTO programs (level, college, name, created_by)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO programs (level, college, name, created_by, graduation_year)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (created_by) DO UPDATE
                 SET is_active = CASE 
-                        WHEN programs.level != EXCLUDED.level OR 
+                        WHEN programs.graduation_year != EXCLUDED.graduation_year OR 
                              programs.college != EXCLUDED.college OR 
                              programs.name != EXCLUDED.name 
                         THEN FALSE 
@@ -101,10 +137,11 @@ def save_program(level, college, program_name, user_id):
                     END,
                     level = EXCLUDED.level,
                     college = EXCLUDED.college,
-                    name = EXCLUDED.name
+                    name = EXCLUDED.name,
+                    graduation_year = EXCLUDED.graduation_year
                 RETURNING id;
                 """
-                cursor.execute(query, (level, college, program_name, user_id))
+                cursor.execute(query, (level, college, program_name, user_id, graduation_year))
                 conn.commit()
                 return cursor.fetchone()[0]
     except Exception as e:
@@ -112,9 +149,19 @@ def save_program(level, college, program_name, user_id):
         raise
     
 def get_user_program_id(telegram_id):
-    """Get program ID for a user, returns None if user has no program"""
+    """Get active program ID for a user. First checks if they are linked to one, then if they created one."""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
+            # First check if user is linked via program_id
+            try:
+                cursor.execute("SELECT program_id FROM users WHERE telegram_id = %s", (telegram_id,))
+                res = cursor.fetchone()
+                if res and res[0]:
+                    return res[0]
+            except Exception:
+                pass # column might not exist yet if DB is mid-migration
+            
+            # Fallback to created_by if no linkage (backward compatibility)
             cursor.execute("""
                 SELECT p.id
                 FROM programs p
@@ -123,6 +170,22 @@ def get_user_program_id(telegram_id):
             """, (telegram_id,))
             result = cursor.fetchone()
             return result[0] if result else None
+
+def link_user_to_program(telegram_id, program_id):
+    """Link a user to a specific program directly via the users table."""
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE users 
+                    SET program_id = %s 
+                    WHERE telegram_id = %s
+                """, (program_id, telegram_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"ERROR: link_user_to_program failed - {str(e)}")
+        return False
 
 def user_has_program(telegram_id):
     """Check if a user already has a registered program"""
@@ -136,25 +199,27 @@ def get_user_program_info(telegram_id):
     return None
 
 
-def save_courses(program_id, course_codes):
+def save_courses(program_id, course_codes, academic_level, semester='Alpha'):
     if not course_codes:
         return []
     
     try:
         # Batch insert utilizing ON CONFLICT to avoid sequential N+1 database querying.
-        placeholders = ", ".join(["(%s, %s)"] * len(course_codes))
+        placeholders = ", ".join(["(%s, %s, %s, %s)"] * len(course_codes))
         
         flat_values = []
         for code in course_codes:
-            flat_values.extend([program_id, code])
+            flat_values.extend([program_id, code, academic_level, semester])
             
         with pool.connection() as conn:
             with conn.cursor() as cursor:
                 query = f"""
-                    INSERT INTO courses (program_id, course_code)
+                    INSERT INTO courses (program_id, course_code, academic_level, semester)
                     VALUES {placeholders}
                     ON CONFLICT (program_id, course_code) DO UPDATE
-                    SET course_code = EXCLUDED.course_code
+                    SET course_code = EXCLUDED.course_code,
+                        academic_level = EXCLUDED.academic_level,
+                        semester = EXCLUDED.semester
                     RETURNING id;
                 """
                 cursor.execute(query, flat_values)
@@ -218,14 +283,22 @@ def save_course_resource_types(course_id, resource_type_ids):
         print(f"ERROR: save_course_resource_types failed - {str(e)}")
         raise
 
-def get_courses_by_program(program_id):
+def get_courses_by_program(program_id, academic_level=None, semester=None):
+    """Fetch courses for a program, optionally filtered by level and semester."""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT id, course_code
-                FROM courses
-                WHERE program_id = %s
-            """, (program_id,))
+            query = "SELECT id, course_code FROM courses WHERE program_id = %s"
+            params = [program_id]
+            
+            if academic_level:
+                query += " AND academic_level = %s"
+                params.append(academic_level)
+            if semester:
+                query += " AND semester = %s"
+                params.append(semester)
+                
+            query += " ORDER BY course_code"
+            cursor.execute(query, params)
             return [{"id": r[0], "course_code": r[1]} for r in cursor.fetchall()]
 
 
@@ -253,6 +326,17 @@ def get_resources_by_course_and_type(course_id, resource_type_id):
                 ORDER BY created_at
             """, (course_id, resource_type_id))
             return [{"file_id": r[0], "file_name": r[1]} for r in cursor.fetchall()]
+
+def get_all_resources_by_course(course_id):
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT file_id, file_name
+                FROM resources
+                WHERE course_id = %s
+                ORDER BY created_at
+            """, (course_id,))
+            return [{"file_id": r[0], "file_name": r[1]} for r in cursor.fetchall()]
     
 def get_course_info(course_id):
     with pool.connection() as conn:
@@ -271,18 +355,18 @@ def get_course_info(course_id):
 # NEW FUNCTIONS FOR START.PY
 # -------------------------
 
-def check_program_exists(level, college, program_name):
-    """Check if a program already exists in the database"""
+def check_program_exists(college, program_name, graduation_year):
+    """Check if a program cohort already exists in the database"""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT id, level, college, name, created_by
+                SELECT id, level, college, name, created_by, graduation_year
                 FROM programs
-                WHERE LOWER(level) = LOWER(%s) 
-                  AND LOWER(college) = LOWER(%s) 
+                WHERE LOWER(college) = LOWER(%s) 
                   AND LOWER(name) = LOWER(%s)
+                  AND graduation_year = %s
                 LIMIT 1
-            """, (level, college, program_name))
+            """, (college, program_name, graduation_year))
             r = cursor.fetchone()
             if r:
                 return {
@@ -290,7 +374,8 @@ def check_program_exists(level, college, program_name):
                     "level": r[1],
                     "college": r[2],
                     "program_name": r[3],
-                    "user_id": r[4]
+                    "user_id": r[4],
+                    "graduation_year": r[5]
                 }
             return None
 
@@ -451,26 +536,43 @@ def save_approval(resource_id, approved_by_telegram_id):
 # PAYMENT & ACTIVATION FUNCTIONS
 # -------------------------
 
-def save_payment(program_id, reference, amount, status):
+def save_payment(program_id, reference, amount, status, payment_type='hub_activation', metadata=None):
     """Save payment transaction record"""
+    import json
+    metadata_json = json.dumps(metadata) if metadata else None
     try:
         with pool.connection() as conn:
             with conn.cursor() as cursor:
                 query = """
-                INSERT INTO payments (program_id, reference, amount, status)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO payments (program_id, reference, amount, status, payment_type, metadata)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (reference) DO UPDATE
-                SET status = EXCLUDED.status
+                SET status = EXCLUDED.status,
+                    metadata = COALESCE(EXCLUDED.metadata, payments.metadata)
                 RETURNING id;
                 """
-                cursor.execute(query, (program_id, reference, amount, status))
+                cursor.execute(query, (program_id, reference, amount, status, payment_type, metadata_json))
                 conn.commit()
                 result = cursor.fetchone()[0]
-                print(f"DEBUG: Payment saved - reference={reference}, program_id={program_id}, amount={amount}, status={status}")
                 return result
     except Exception as e:
         print(f"ERROR: save_payment failed - {str(e)}")
         raise
+
+def save_archive_subscription(user_id, access_type, target_id=None, target_level=None, reference=None):
+    """Fulfill an archive subscription payment"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            # Check for existing record to avoid duplicates
+            cursor.execute("SELECT id FROM archive_subscriptions WHERE payment_reference = %s", (reference,))
+            if cursor.fetchone(): return True
+            
+            cursor.execute("""
+                INSERT INTO archive_subscriptions (user_id, access_type, target_course_id, target_level, payment_reference)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, access_type, target_id if access_type == 'course' else None, target_level, reference))
+            conn.commit()
+            return True
 
 def get_payment_by_reference(reference):
     """Get payment record by Paystack reference"""
@@ -621,13 +723,13 @@ def delete_program(program_id):
             return True
 
 def get_all_transactions():
-    """Get all payment transactions"""
+    """Get all payment transactions with optional program details"""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT p.id, p.program_id, p.reference, p.amount, p.status, p.created_at, prog.name
+                SELECT p.id, p.program_id, p.reference, p.amount, p.status, p.created_at, prog.name, p.payment_type
                 FROM payments p
-                JOIN programs prog ON p.program_id = prog.id
+                LEFT JOIN programs prog ON p.program_id = prog.id
                 ORDER BY p.created_at DESC
             """)
             return [
@@ -638,20 +740,21 @@ def get_all_transactions():
                     "amount": r[3],
                     "status": r[4],
                     "created_at": r[5],
-                    "program_name": r[6]
+                    "program_name": r[6] if r[6] else "N/A",
+                    "payment_type": r[7]
                 }
                 for r in cursor.fetchall()
             ]
 
 def get_transaction_by_id(transaction_id):
-    """Get a specific transaction by ID"""
+    """Get a specific transaction by ID with extended details"""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT p.id, p.program_id, p.reference, p.amount, p.status, p.created_at, prog.name, u.first_name
+                SELECT p.id, p.program_id, p.reference, p.amount, p.status, p.created_at, prog.name, u.first_name, p.payment_type, p.metadata
                 FROM payments p
-                JOIN programs prog ON p.program_id = prog.id
-                JOIN users u ON prog.created_by = u.id
+                LEFT JOIN programs prog ON p.program_id = prog.id
+                LEFT JOIN users u ON prog.created_by = u.id
                 WHERE p.id = %s
             """, (transaction_id,))
             r = cursor.fetchone()
@@ -663,8 +766,10 @@ def get_transaction_by_id(transaction_id):
                     "amount": r[3],
                     "status": r[4],
                     "created_at": r[5],
-                    "program_name": r[6],
-                    "user_name": r[7]
+                    "program_name": r[6] if r[6] else "N/A",
+                    "user_name": r[7] if r[7] else "N/A",
+                    "payment_type": r[8],
+                    "metadata": r[9]
                 }
             return None
 
@@ -744,14 +849,14 @@ def check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT COUNT(*)
-                FROM resources
-                WHERE course_id = %s 
-                AND resource_type_id = %s 
-                AND LOWER(file_name) = LOWER(%s)
+                SELECT 1
+                FROM resources r
+                JOIN courses c ON r.course_id = c.id
+                WHERE r.course_id = %s 
+                  AND r.resource_type_id = %s 
+                  AND LOWER(r.file_name) = LOWER(%s)
             """, (course_id, resource_type_id, file_name))
-            count = cursor.fetchone()[0]
-            return count > 0
+            return cursor.fetchone() is not None
 
 def save_resource_with_type_check(course_id, resource_type_id, file_id, file_name, uploader_id):
     """Save resource with proper duplicate checking based on type"""
@@ -872,3 +977,71 @@ def count_active_programs():
         with conn.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM programs WHERE is_active = TRUE")
             return cursor.fetchone()[0]
+
+def promote_program(program_id):
+    """Bumps up the active level sequence of a program by 100 dynamically"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("""
+                    UPDATE programs
+                    SET level = (CAST(NULLIF(REGEXP_REPLACE(level, '\D', '', 'g'), '') AS INTEGER) + 100)::text || ' Level'
+                    WHERE id = %s
+                    RETURNING level
+                """, (program_id,))
+                conn.commit()
+                res = cursor.fetchone()
+                return res[0] if res else None
+            except Exception as e:
+                print(f"ERROR: promote_program failed - {str(e)}")
+                return None
+
+def check_archive_access(user_id, target_level=None, target_course_id=None):
+    """Validates multi-tiered access matrix"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            # Bypass lifetime access
+            cursor.execute("SELECT id FROM archive_subscriptions WHERE user_id=%s AND access_type='full' LIMIT 1", (user_id,))
+            if cursor.fetchone(): return True
+            
+            # Specific level access
+            if target_level:
+                cursor.execute("SELECT id FROM archive_subscriptions WHERE user_id=%s AND access_type='level' AND target_level=%s LIMIT 1", (user_id, target_level))
+                if cursor.fetchone(): return True
+                
+            # Specific course access
+            if target_course_id:
+                cursor.execute("SELECT id FROM archive_subscriptions WHERE user_id=%s AND access_type='course' AND target_course_id=%s LIMIT 1", (user_id, target_course_id))
+                if cursor.fetchone(): return True
+                
+            return False
+
+def get_past_levels(program_id, current_level_str):
+    """Returns a list of levels less than the current active level"""
+    try:
+        current_level_int = int(''.join(filter(str.isdigit, current_level_str)))
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT DISTINCT academic_level
+                    FROM courses
+                    WHERE program_id = %s 
+                      AND CAST(NULLIF(REGEXP_REPLACE(academic_level, '\D', '', 'g'), '') AS INTEGER) < %s
+                    ORDER BY CAST(NULLIF(REGEXP_REPLACE(academic_level, '\D', '', 'g'), '') AS INTEGER) DESC
+                """, (program_id, current_level_int))
+                return [r[0] for r in cursor.fetchall()]
+    except Exception as e:
+        print(f"ERROR: get_past_levels failed - {str(e)}")
+        return []
+
+def get_courses_by_level_and_semester(program_id, level, semester):
+    """Fetch courses for a specific historical level and semester"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, course_code
+                FROM courses
+                WHERE program_id = %s AND academic_level = %s AND semester = %s
+                ORDER BY course_code
+            """, (program_id, level, semester))
+            return [{"id": r[0], "course_code": r[1]} for r in cursor.fetchall()]

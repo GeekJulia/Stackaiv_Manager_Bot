@@ -110,14 +110,21 @@ def paystack_webhook():
         
         # Handle successful charge
         if event == "charge.success":
-            result = handle_payment_webhook(data)
+            fulfillment = handle_payment_webhook(data)
             
-            if result.get("status") and result.get("activated"):
-                logger.info(f"Program {result['program_id']} activated successfully")
-                return jsonify({"status": "success", "message": "Payment verified and program activated"}), 200
+            if fulfillment.get("status"):
+                ftype = fulfillment.get("type")
+                if ftype == "hub_activation":
+                    logger.info(f"Program {fulfillment['program_id']} activated successfully")
+                    return jsonify({"status": "success", "message": "Hub activated"}), 200
+                elif ftype == "archive_access":
+                    logger.info(f"Archive access granted for User {fulfillment['user_id']}")
+                    return jsonify({"status": "success", "message": "Archive access granted"}), 200
+                else:
+                    return jsonify({"status": "success", "message": "Payment processed"}), 200
             else:
-                logger.error(f"Payment verification failed: {result.get('error')}")
-                return jsonify({"status": "error", "message": result.get("error")}), 400
+                logger.error(f"Payment verification failed: {fulfillment.get('error')}")
+                return jsonify({"status": "error", "message": fulfillment.get("error")}), 400
         
         # Other events (failures, abandonments) can be logged but not processed
         elif event in ["charge.failure", "charge.abandon"]:

@@ -2,7 +2,12 @@ import os
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
-from ..database.queries import save_payment, get_payment_by_reference, activate_program
+from ..database.queries import (
+    save_payment, 
+    get_payment_by_reference, 
+    activate_program,
+    save_archive_subscription
+)
 
 # Load .env from project root
 env_path = Path(__file__).parent.parent.parent / ".env"
@@ -10,170 +15,148 @@ load_dotenv(dotenv_path=env_path, override=True)
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
 PAYSTACK_BASE_URL = "https://api.paystack.co"
-ACTIVATION_FEE = 3000
 
 # -------------------------
 # PAYSTACK API FUNCTIONS
 # -------------------------
 
-def initialize_transaction(program_id, email, reference):
-    # Ensure the secret key is loaded - reload from environment
-    load_dotenv()  # Force reload of .env file
+def initialize_transaction(email, amount, reference, payment_type='hub_activation', program_id=None, target_id=None, target_level=None):
+    """
+    Initialize a Paystack transaction with dynamic metadata for fulfillment.
+    
+    Args:
+        email: User email (required by Paystack)
+        amount: Amount in Naira
+        reference: Unique reference
+        payment_type: 'hub_activation' or 'archive_access'
+        program_id: Associated program (optional for archive)
+        target_id: course_id if type is course archive
+        target_level: level string if type is level archive
+    """
     secret_key = os.getenv("PAYSTACK_SECRET_KEY")
     
-    if not secret_key or secret_key.strip() == "":
-        return {
-            "status": False,
-            "error": "Paystack secret key not configured. Please check your .env file."
-        }
-    
-    # Strip any whitespace from secret key
-    secret_key = secret_key.strip()
+    if not secret_key:
+        return {"status": False, "error": "Paystack secret key not configured."}
 
     url = f"{PAYSTACK_BASE_URL}/transaction/initialize"
-    
     headers = {
-        "Authorization": f"Bearer {secret_key}",
+        "Authorization": f"Bearer {secret_key.strip()}",
         "Content-Type": "application/json",
+    }
+    
+    # Bundle metadata for the webhook
+    metadata = {
+        "payment_type": payment_type,
+        "program_id": program_id,
+        "target_id": target_id,
+        "target_level": target_level
     }
     
     payload = {
         "email": email,
-        "amount": ACTIVATION_FEE * 100,
+        "amount": int(amount) * 100, # Kobo
         "reference": reference,
         "currency": "NGN",
+        "metadata": metadata,
         "channels": ["card", "bank", "bank_transfer"]
     }
     
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        
         data = response.json()
         
         if data.get("status"):
-            # Save payment record with pending status
+            # Save internal payment record
             save_payment(
                 program_id=program_id,
                 reference=reference,
-                amount=ACTIVATION_FEE,
-                status="pending"
+                amount=amount,
+                status="pending",
+                payment_type=payment_type,
+                metadata=metadata
             )
             
             return {
                 "status": True,
                 "authorization_url": data["data"]["authorization_url"],
-                "access_code": data["data"]["access_code"],
-                "reference": data["data"]["reference"]
+                "reference": reference
             }
         else:
-            error_msg = data.get("message", "Unknown error")
-            return {"status": False, "error": error_msg}
-    
-    except requests.exceptions.RequestException as e:
-        return {"status": False, "error": f"Payment initialization failed: {str(e)}"}
-
-def verify_transaction(reference):
-    """
-    Verify a Paystack transaction
-    Returns: {status: bool, verified: bool, data: dict}
-    """
-    secret_key = os.getenv("PAYSTACK_SECRET_KEY") or PAYSTACK_SECRET_KEY
-    
-    if not secret_key:
-        return {
-            "status": False,
-            "verified": False,
-            "error": "Paystack secret key not configured."
-        }
-    
-    url = f"{PAYSTACK_BASE_URL}/transaction/verify/{reference}"
-    
-    headers = {
-        "Authorization": f"Bearer {secret_key}",
-        "Content-Type": "application/json"
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        if data.get("status"):
-            transaction_data = data.get("data", {})
-            
-            # Check if payment was successful and amount matches
-            is_verified = (
-                transaction_data.get("status") == "success" and
-                transaction_data.get("amount") == ACTIVATION_FEE
-            )
-            
-            return {
-                "status": True,
-                "verified": is_verified,
-                "data": transaction_data
-            }
-        else:
-            return {"status": False, "verified": False, "error": data.get("message", "Unknown error")}
-    
-    except requests.exceptions.RequestException as e:
-        return {"status": False, "verified": False, "error": f"Verification failed: {str(e)}"}
+            return {"status": False, "error": data.get("message", "Initialization failed")}
+    except Exception as e:
+        return {"status": False, "error": str(e)}
 
 def handle_payment_webhook(data):
     """
-    Handle Paystack webhook (charge.success event)
-    data = request.json from Paystack
-    Returns: {status: bool, program_id: int, activated: bool}
+    Dispatch fulfillment based on payment metadata.
     """
     try:
-        reference = data.get("data", {}).get("reference")
-        amount = data.get("data", {}).get("amount")  # Amount in kobo (1/100 of naira)
-        
-        # Debug logging
-        print(f"DEBUG Webhook: reference={reference}, amount={amount}, expected_amount_kobo={ACTIVATION_FEE * 100}")
+        tx_data = data.get("data", {})
+        reference = tx_data.get("reference")
+        amount_kobo = tx_data.get("amount")
+        metadata = tx_data.get("metadata", {})
         
         if not reference:
-            return {"status": False, "error": "Invalid reference"}
+            return {"status": False, "error": "No reference"}
+
+        # Get metadata from Paystack or fallback to local DB if Paystack stripped it
+        payment_type = metadata.get("payment_type")
+        program_id = metadata.get("program_id")
         
-        # Paystack sends amount in kobo, convert to compare with ACTIVATION_FEE (in naira)
-        # 1 naira = 100 kobo, so ACTIVATION_FEE * 100 should match webhook amount
-        expected_amount_kobo = ACTIVATION_FEE * 100
-        if amount != expected_amount_kobo:
-            return {"status": False, "error": f"Invalid amount: got {amount}, expected {expected_amount_kobo}"}
-        
-        # Get payment record
+        # Verify internally
         payment = get_payment_by_reference(reference)
         if not payment:
-            return {"status": False, "error": f"Payment record not found for reference: {reference}"}
+            return {"status": False, "error": "Payment record missing"}
         
-        program_id = payment["program_id"]
-        
-        # Update payment status to success
+        # Update status to success
         save_payment(
-            program_id=program_id,
+            program_id=payment.get('program_id'),
             reference=reference,
-            amount=ACTIVATION_FEE,  # Store in naira
+            amount=payment['amount'],
             status="success"
         )
-        
-        # Activate program
-        activate_program(program_id)
-        
-        return {
-            "status": True,
-            "program_id": program_id,
-            "activated": True
-        }
-    
-    except Exception as e:
-        return {"status": False, "error": f"Webhook processing failed: {str(e)}"}
 
-def generate_payment_reference(user_id, program_id):
-    """Generate a unique payment reference for Paystack"""
+        # FULFILLMENT DISPATCH
+        if payment_type == 'hub_activation' or payment.get('payment_type') == 'hub_activation':
+            # Activate Program Hub (₦3000)
+            target_prog_id = program_id or payment.get('program_id')
+            activate_program(target_prog_id)
+            return {"status": True, "type": "hub_activation", "program_id": target_prog_id}
+            
+        elif payment_type == 'archive_access' or payment.get('payment_type') == 'archive_access':
+            # Academic Vault Access (₦500 / ₦2500 / ₦10000)
+            user_id = payment.get('metadata', {}).get('user_id') # We should ensure user_id is in metadata
+            # Fallback user_id extraction: usually part of the reference for us
+            # STACKAIV_U{user_id}_P{program_id}...
+            try:
+                if not user_id:
+                    user_id = int(reference.split('_')[1][1:])
+            except: pass
+
+            target_id = metadata.get('target_id')
+            target_level = metadata.get('target_level')
+            access_type = 'course' if target_id else ('level' if target_level else 'full')
+            
+            save_archive_subscription(
+                user_id=user_id,
+                access_type=access_type,
+                target_id=target_id,
+                target_level=target_level,
+                reference=reference
+            )
+            return {"status": True, "type": "archive_access", "user_id": user_id}
+
+        return {"status": False, "error": "Unknown payment type"}
+        
+    except Exception as e:
+        return {"status": False, "error": f"Fulfillment error: {str(e)}"}
+
+def generate_payment_reference(user_id, program_id=None, ptype='ACT'):
+    """Generate a unique payment reference"""
     import time
     import uuid
-    timestamp = int(time.time())
-    random_str = uuid.uuid4().hex[:6].upper()
-    reference = f"STACKAIV_U{user_id}_P{program_id}_{timestamp}_{random_str}"
-    return reference
+    ts = int(time.time())
+    rand = uuid.uuid4().hex[:4].upper()
+    prog_part = f"_P{program_id}" if program_id else ""
+    return f"STK_{ptype}_U{user_id}{prog_part}_{ts}_{rand}"

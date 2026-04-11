@@ -123,13 +123,14 @@ def admin_handler(bot):
 
             for t in page_items:
                 status = " Success" if t['status'] == 'success' else " Pending"
-                amount_naira = int(t['amount']) if isinstance(t['amount'], (int, float)) else 0
+                amount_naira = int(t['amount'])
                 date = str(t.get('created_at', 'N/A'))[:10]
+                ptype = t.get('payment_type', 'hub_activation').replace('_', ' ').title()
 
                 text += (
-                    f"*ID:* {t['id']} | *Status:* {status}\n"
+                    f"*ID:* {t['id']} | *Type:* {ptype}\n"
+                    f"*Status:* {status} | *Amount:* ₦{amount_naira:,}\n"
                     f"*Reference:* `{t['reference']}`\n"
-                    f"*Amount:* ₦{amount_naira:,} | *Program:* {t['program_id']}\n"
                     f"*Date:* {date}\n"
                     f"──────────────────\n"
                 )
@@ -186,17 +187,30 @@ def admin_handler(bot):
             transaction = get_transaction_by_id(transaction_id)
 
             if transaction:
-                amount_naira = int(transaction['amount'] / 100) if isinstance(transaction['amount'], (int, float)) else 0
+                amount_naira = int(transaction['amount'])
+                ptype = transaction.get('payment_type', 'hub_activation').replace('_', ' ').title()
+                
                 text = (
                     f" *Transaction Details*\n\n"
                     f"ID: `{transaction['id']}`\n"
+                    f"Type: **{ptype}**\n"
                     f"Reference: `{transaction['reference']}`\n"
                     f"Amount: ₦{amount_naira:,}\n"
                     f"Status: {transaction['status'].upper()}\n"
-                    f"Program: {transaction['program_name']}\n"
-                    f"User: {transaction['user_name']}\n"
-                    f"Date: {transaction['created_at']}"
+                    f"Program: {transaction.get('program_name', 'N/A')}\n"
+                    f"User: {transaction.get('user_name', 'N/A')}\n"
+                    f"Date: {transaction['created_at']}\n"
                 )
+                
+                if transaction.get('metadata'):
+                    import json
+                    try:
+                        meta = transaction['metadata']
+                        if isinstance(meta, str): meta = json.loads(meta)
+                        text += "\n*Metadata:*\n"
+                        for k, v in meta.items():
+                            if v: text += f"- {k}: `{v}`\n"
+                    except: pass
             else:
                 text = f" Transaction with ID `{transaction_id}` not found."
 

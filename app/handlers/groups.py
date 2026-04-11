@@ -24,6 +24,14 @@ batch_messages = TTLDict(cleanup_interval_seconds=600)  # {chat_id: message_id} 
 
 def groups_handler(bot):
     
+    def schedule_delete(chat_id, message_id, delay=5.0):
+        def _del():
+            try:
+                bot.delete_message(chat_id, message_id)
+            except Exception:
+                pass
+        threading.Timer(delay, _del).start()
+    
     # -------------------------
     # Bot Added to Group - FIXED
     # -------------------------
@@ -427,12 +435,13 @@ def groups_handler(bot):
             detected = f['course_code'] if f['course_code'] else "No course detected"
             file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
         
-        file_list += f"\n{len(queue)} file(s) ready\n\n"
-        file_list += "Select course for all files:"
+        file_list += f"\n*{len(queue)} file(s) ready*\n\n"
+        file_list += "Select how to assign them:"
         
-        # Build keyboard - ONLY "Select Course" and "Cancel"
+        # Build keyboard - "Assign All Together" and "Assign Individually"
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("Select Course", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("Assign All Together", callback_data="batch:course"))
+        kb.add(InlineKeyboardButton("Assign Individually", callback_data="batch:assign_indiv"))
         kb.add(InlineKeyboardButton("Cancel", callback_data="batch:cancel"))
         
         # Send batch prompt
@@ -453,7 +462,8 @@ def groups_handler(bot):
             "batch_id": chat_id,
             "file_count": len(queue),
             "course_id": None,
-            "resource_type_id": None
+            "resource_type_id": None,
+            "current_file_idx": 0
         }
     
     # -------------------------
@@ -465,7 +475,8 @@ def groups_handler(bot):
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
-            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
             return
         
         program_id = batch_queues[chat_id][0]['program_id']
@@ -495,7 +506,8 @@ def groups_handler(bot):
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
-            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
             return
         
         session["course_id"] = course_id
@@ -526,7 +538,8 @@ def groups_handler(bot):
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
-            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
             return
         
         session["resource_type_id"] = resource_type_id
@@ -585,6 +598,8 @@ def groups_handler(bot):
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
             return
         
         # Show resource type selection again
@@ -612,6 +627,8 @@ def groups_handler(bot):
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
             return
         
         # Back to initial prompt
@@ -638,52 +655,127 @@ def groups_handler(bot):
         session["stage"] = "batch_awaiting_course"
     
     # -------------------------
-    # Batch: Process All Files
+    # Batch: Assign Individually Start
     # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "batch:process")
-    def batch_process_all(call):
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:assign_indiv")
+    def batch_assign_indiv(call):
         chat_id = call.message.chat.id
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
-            bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
             return
-        
-        course_id = session.get("course_id")
-        resource_type_id = session.get("resource_type_id")
-        
-        if not course_id or not resource_type_id:
-            bot.answer_callback_query(
-                call.id,
-                "Please select both course and resource type",
-                show_alert=True
-            )
-            return
-        
+
+        session["current_file_idx"] = 0
+        # Reclaim user details mapping automatically per callback triggering this method loop 
+        session["user_obj"] = call.from_user 
+        show_indiv_course_selection(chat_id, call.message.message_id, session_key)
+
+    def show_indiv_course_selection(chat_id, message_id, session_key):
+        session = group_sessions.get(session_key)
+        idx = session["current_file_idx"]
         queue = batch_queues.get(chat_id, [])
-        if not queue:
-            bot.answer_callback_query(call.id, "Queue is empty", show_alert=True)
-            return
         
-        # Edit the existing message to show processing status
+        if idx >= len(queue):
+            process_mixed_batch(chat_id, message_id, session_key, session.get("user_obj", None))
+            return
+            
+        file_data = queue[idx]
+        program_id = file_data['program_id']
+        courses = get_courses_by_program(program_id)
+        
+        kb = InlineKeyboardMarkup()
+        for c in courses:
+            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"bindiv_course:{c['id']}"))
+        kb.add(InlineKeyboardButton("Cancel Entire Batch", callback_data="batch:cancel"))
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"*Processing File {idx + 1} of {len(queue)}*\n\n`{file_data['file_name']}`\n\nSelect Course:",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_indiv_course"
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("bindiv_course:"))
+    def bindiv_course_selected(call):
+        chat_id = call.message.chat.id
+        course_id = int(call.data.split(":")[1])
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
+            return
+
+        idx = session["current_file_idx"]
+        batch_queues[chat_id][idx]["course_id"] = course_id
+        session["user_obj"] = call.from_user # Keep updated to avoid empty tracking bounds
+
+        resource_types = get_resource_types()
+        kb = InlineKeyboardMarkup()
+        for r in resource_types:
+            kb.add(InlineKeyboardButton(r['name'], callback_data=f"bindiv_type:{r['id']}"))
+        
+        file_data = batch_queues[chat_id][idx]
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
+            text=f"*Processing File {idx + 1} of {len(batch_queues[chat_id])}*\n\n`{file_data['file_name']}`\n\nSelect Resource Type:",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_indiv_type"
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("bindiv_type:"))
+    def bindiv_type_selected(call):
+        chat_id = call.message.chat.id
+        type_id = int(call.data.split(":")[1])
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
+            return
+
+        idx = session["current_file_idx"]
+        batch_queues[chat_id][idx]["resource_type_id"] = type_id
+
+        session["current_file_idx"] += 1
+        show_indiv_course_selection(chat_id, call.message.message_id, session_key)
+
+    # -------------------------
+    # Mixed Batch Process Execution
+    # -------------------------
+    def process_mixed_batch(chat_id, message_id, session_key, user):
+        queue = batch_queues.get(chat_id, [])
+        if not queue:
+            return
+            
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
             text=f"Processing {len(queue)} file(s)...",
             parse_mode="Markdown"
         )
         
-        # Process all files
         success_count = 0
         duplicate_count = 0
         
         for file_data in queue:
+            cid = file_data.get('course_id')
+            rtid = file_data.get('resource_type_id')
+            if not cid or not rtid:
+                continue
+
             try:
                 is_duplicate = safe_db_operation(
                     check_duplicate_resource,
                     False,
-                    course_id,
-                    resource_type_id,
+                    cid,
+                    rtid,
                     file_data['file_name']
                 )
                 
@@ -694,60 +786,67 @@ def groups_handler(bot):
                 resource_id = safe_db_operation(
                     save_resource,
                     None,
-                    course_id=course_id,
-                    resource_type_id=resource_type_id,
+                    course_id=cid,
+                    resource_type_id=rtid,
                     file_id=file_data['file_id'],
                     file_name=file_data['file_name'],
                     uploader_id=file_data['uploader_id']
                 )
                 
                 if resource_id:
-                    safe_db_operation(save_approval, None, resource_id, call.from_user.id)
+                    if user:
+                        safe_db_operation(save_approval, None, resource_id, user.id)
                     success_count += 1
-            except DatabaseTimeoutError:
-                continue  # Skip this file if DB timeout
             except Exception:
-                continue  # Skip on other errors
-        
-        # Get course and resource type details for display
-        course = None
-        resource_type = None
-        
-        if course_id:
-            courses = get_courses_by_program(batch_queues[chat_id][0]['program_id'])
-            for c in courses:
-                if c['id'] == course_id:
-                    course = c
-                    break
-        
-        if resource_type_id:
-            types = get_resource_types()
-            for t in types:
-                if t['id'] == resource_type_id:
-                    resource_type = t
-                    break
-        
-        # Show result by editing the same message
-        approver_username = call.from_user.username or call.from_user.first_name
+                pass
+                
+        approver_username = (user.username or user.first_name) if user else "System"
         result_msg = f"Batch Upload Complete\n\n"
-        result_msg += f"Course: `{course['course_code'] if course else 'Unknown'}`\n"
-        result_msg += f"Resource Type: `{resource_type['name'] if resource_type else 'Unknown'}`\n\n"
         result_msg += f"{success_count} file(s) added\n"
         if duplicate_count > 0:
             result_msg += f"{duplicate_count} file(s) skipped (already exist)\n"
         result_msg += f"\nApproved by: @{approver_username}"
         
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            text=result_msg,
-            parse_mode="Markdown"
-        )
+        try:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=result_msg,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
         
-        # Clean up
         batch_queues.pop(chat_id, None)
         batch_messages.pop(chat_id, None)
         group_sessions.pop(session_key, None)
+
+    # -------------------------
+    # Batch: Process All Files
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "batch:process")
+    def batch_process_all(call):
+        chat_id = call.message.chat.id
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            schedule_delete(chat_id, call.message.message_id)
+            return
+        
+        course_id = session.get("course_id")
+        resource_type_id = session.get("resource_type_id")
+        
+        if not course_id or not resource_type_id:
+            bot.answer_callback_query(call.id, "Please select both course and resource type", show_alert=True)
+            return
+            
+        queue = batch_queues.get(chat_id, [])
+        for file_data in queue:
+            file_data["course_id"] = course_id
+            file_data["resource_type_id"] = resource_type_id
+            
+        process_mixed_batch(chat_id, call.message.message_id, session_key, call.from_user)
     # -------------------------
     # Batch: Cancel
     # -------------------------
@@ -762,6 +861,8 @@ def groups_handler(bot):
             text="Batch upload cancelled",
             parse_mode="Markdown"
         )
+        
+        schedule_delete(chat_id, call.message.message_id, 5.0)
         
         # Clean up
         batch_queues.pop(chat_id, None)

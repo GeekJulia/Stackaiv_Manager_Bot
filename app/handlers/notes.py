@@ -182,8 +182,36 @@ def notes_handler(bot):
             bot.answer_callback_query(call.id, " Session expired. Start again.", show_alert=True)
             return
 
-        course_codes = session["pending_courses"]
+        # NEW: Prompt for Semester selection
+        kb = InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            InlineKeyboardButton(" Alpha Semester", callback_data="notes:semester:Alpha"),
+            InlineKeyboardButton(" Omega Semester", callback_data="notes:semester:Omega")
+        )
+        kb.add(InlineKeyboardButton(" Back", callback_data="notes:add_courses"))
+
+        bot.edit_message_text(
+            " *Select Semester*\n\nWhich semester are these courses for?",
+            call.message.chat.id,
+            message_id,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("notes:semester:"))
+    def handle_semester_selection(call):
+        user_id = call.from_user.id
+        semester = call.data.split(":")[2]
+        session = notes_sessions.get(user_id)
         
+        if not session or "pending_courses" not in session:
+            bot.answer_callback_query(call.id, " Session expired.", show_alert=True)
+            return
+
+        session["semester"] = semester
+        course_codes = session["pending_courses"]
+        message_id = call.message.message_id
+
         # Show processing message
         loading_msg_id = send_loading_message(
             bot,
@@ -192,40 +220,29 @@ def notes_handler(bot):
         )
         
         try:
-            #  USE NEW HELPER FUNCTION
             program_id = get_active_program_id(user_id)
             if not program_id:
-                edit_message_safe(
-                    bot,
-                    call.message.chat.id,
-                    loading_msg_id,
-                    " Program not found. Please start over.",
-                    parse_mode="Markdown"
-                )
+                edit_message_safe(bot, call.message.chat.id, loading_msg_id, " Program not found.", parse_mode="Markdown")
                 return
             
-            # Save courses to database
-            course_ids = safe_db_operation(save_courses, [], program_id, course_codes)
+            # Fetch current program level to tag courses
+            program_info = safe_db_operation(get_program_info, None, program_id)
+            academic_level = program_info['level'] if program_info else "Unknown"
 
-            notes_sessions[user_id] = {
+            # Save courses to database with academic_level and semester
+            course_ids = safe_db_operation(save_courses, [], program_id, course_codes, academic_level, semester)
+
+            notes_sessions[user_id].update({
                 "stage": "select_resources",
                 "course_ids": course_ids,
                 "course_codes": course_codes,
                 "selected_resources": set(),
                 "message_id": message_id
-            }
+            })
 
             # Edit loading message to show resource types
             show_resource_checkboxes(bot, call.message.chat.id, user_id, loading_msg_id)
 
-        except DatabaseTimeoutError:
-            edit_message_safe(
-                bot,
-                call.message.chat.id,
-                loading_msg_id,
-                " *System is busy*\n\nPlease try again in a moment.",
-                parse_mode="Markdown"
-            )
         except Exception as e:
             edit_message_safe(
                 bot,

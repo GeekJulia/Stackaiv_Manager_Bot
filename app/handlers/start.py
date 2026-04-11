@@ -12,11 +12,18 @@ from ..database.queries import (
     get_user_info_by_telegram_id,
     remove_duplicate_courses,
     save_admin_message,
+    link_user_to_program,
+    save_courses,
+    promote_program,
+    check_archive_access,
+    get_past_levels,
+    get_courses_by_level_and_semester
 )
 from .notes import get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
 from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
+from ..services.payments import initialize_transaction, generate_payment_reference
 
 user_sessions = TTLDict()
 
@@ -26,6 +33,38 @@ QUOTES = [
     "Code is like humor. When you have to explain it, it's bad.",
     "Any fool can write code that a computer can understand. Good programmers write code that humans can understand."
 ]
+
+def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""):
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton(" All Courses", callback_data="hub:courses"),
+        InlineKeyboardButton(" Add Resource", callback_data="hub:add"),
+        InlineKeyboardButton(" Get Resource", callback_data="hub:get"),
+        InlineKeyboardButton(" Help Info", callback_data="hub:help"),
+    )
+    
+    # New Archive and Promote Buttons
+    kb.add(InlineKeyboardButton(" 🗄 Past Level Archives", callback_data="hub:archives"))
+    
+    # Check if user is the creator to show 'Promote' button
+    creator = safe_db_operation(get_program_creator, None, program['id'])
+    # chat_id for private chat is usually telegram_id. In start_handler, chat_id is message.chat.id
+    # We'll assume the person interacting is the one whose chat it is.
+    if creator and creator['telegram_id'] == chat_id:
+        kb.add(InlineKeyboardButton(" 📊 Promote Hub Level", callback_data="hub:promote"))
+
+    kb.add(InlineKeyboardButton(" Re-register (Reset)", callback_data="hub:reregister"))
+    
+    text = f" *{program['program_name']} {program['level']} Hub*\n"
+    if program.get('graduation_year'):
+        text += f"_Class of {program['graduation_year']}_\n"
+    text += f"\n{extra_text}What would you like to do?"
+    
+    if message_id:
+        edit_message_safe(bot, chat_id, message_id, text, reply_markup=kb, parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
+
 
 def start_handler(bot):
 
@@ -48,6 +87,20 @@ def start_handler(bot):
 
         if user_info and user_info.get('career'):
             # User is registered
+            if program_id:
+                quote = random.choice(QUOTES)
+                program = safe_db_operation(get_program_info, None, program_id)
+                if program:
+                    user_sessions[telegram_id] = {
+                        "program_id": program_id,
+                        "stage": "authenticated"
+                    }
+                    show_program_hub_panel(
+                        bot, message.chat.id, program, 
+                        extra_text=f"Welcome back, {user_info['first_name']}!\n_{quote}_\n\n"
+                    )
+                    return
+
             quote = random.choice(QUOTES)
             welcome_text = (
                 f" Welcome back, {user_info['first_name']}!\n\n"
@@ -55,8 +108,6 @@ def start_handler(bot):
                 f"Select an option below to proceed:"
             )
             kb = InlineKeyboardMarkup()
-            if program_id:
-                kb.add(InlineKeyboardButton(" Proceed to Program Hub", callback_data="hub:enter_own"))
             kb.add(InlineKeyboardButton(" Join an Existing Hub (ID)", callback_data="action:goto_space"))
             kb.add(InlineKeyboardButton(" Contact Admin", callback_data="action:contact_admin"))
             
@@ -71,8 +122,8 @@ def start_handler(bot):
             msg = (
                 " Welcome to Stackaiv!\n\n"
                 "To get started, please reply with your details in this exact format:\n\n"
-                "**Name | Program | Level | College | Career**\n\n"
-                "_Example: `Julia | Computer Science | 400 | CST | Developer`_"
+                "**Name | Program | Level | Grad Year | College | Career**\n\n"
+                "_Example: `Julia | Computer Science | 400 | 2025 | CST | Developer`_"
             )
             
             user_sessions[telegram_id] = {"stage": "awaiting_registration"}
@@ -89,23 +140,75 @@ def start_handler(bot):
             return
 
         parts = [p.strip() for p in text.split('|')]
-        if len(parts) != 5:
+        if len(parts) != 6:
             bot.send_message(
                 message.chat.id, 
-                " Invalid format. Please make sure to include all 5 details separated by `|`.\n\n"
-                "_Example: `Julia | Computer Science | 400 | CST | Developer`_",
+                " Invalid format. Please make sure to include all 6 details separated by `|`.\n\n"
+                "_Example: `Julia | Computer Science | 400 | 2025 | CST | Developer`_",
                 parse_mode="Markdown"
             )
             return
 
-        name, program_name, level, college, career = parts
+        name, program_name, level, grad_year, college, career = parts
 
         # Normalize Level (e.g. "400" -> "400 Level")
         if "Level" not in level:
             # If it's just a number, append ' Level'
             level = f"{level} Level" if level.isdigit() else level
 
-        loading_msg_id = send_loading_message(bot, message.chat.id, " *Processing registration...*")
+        # Natural Language Confirmation
+        level_str = level.replace(" Level", "")
+        confirm_text = f"Your name is {name}, You are in {level_str} level of {program_name} graduating in {grad_year}.\n\nIs this correct?"
+        
+        # Save temp state
+        user_sessions[telegram_id]['pending_registration'] = {
+             "name": name, "program_name": program_name, "level": level, "grad_year": grad_year, "college": college, "career": career, "username": message.from_user.username
+        }
+        user_sessions[telegram_id]['stage'] = "confirm_registration"
+
+        kb = InlineKeyboardMarkup()
+        kb.add(
+             InlineKeyboardButton("Yes, Confirm", callback_data="reg:confirm"),
+             InlineKeyboardButton("No, Cancel", callback_data="reg:cancel")
+        )
+
+        bot.send_message(message.chat.id, confirm_text, reply_markup=kb)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "reg:cancel")
+    def reg_cancel(call):
+        bot.edit_message_text(
+            chat_id=call.message.chat.id, 
+            message_id=call.message.message_id, 
+            text="Registration cancelled. Please send your details again:\n\n**Name | Program | Level | Grad Year | College | Career**",
+            parse_mode="Markdown"
+        )
+        user_sessions[call.from_user.id]['stage'] = "awaiting_registration"
+
+    @bot.callback_query_handler(func=lambda call: call.data == "reg:confirm")
+    def reg_confirm(call):
+        telegram_id = call.from_user.id
+        session = user_sessions.get(telegram_id, {})
+        pending = session.get('pending_registration')
+        if not pending:
+            bot.answer_callback_query(call.id, "Session expired, please /start again.")
+            return
+
+        name = pending["name"]
+        program_name = pending["program_name"]
+        level = pending["level"]
+        grad_year = pending["grad_year"]
+        college = pending["college"]
+        career = pending["career"]
+        username = pending["username"]
+
+        # Proceed directly to edits
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=" *Processing registration...*",
+            parse_mode="Markdown"
+        )
+        loading_msg_id = call.message.message_id
 
         try:
             # Save User
@@ -113,7 +216,7 @@ def start_handler(bot):
                 save_user,
                 None,
                 telegram_id=telegram_id,
-                username=message.from_user.username,
+                username=username,
                 first_name=name,
                 career=career
             )
@@ -122,50 +225,47 @@ def start_handler(bot):
             existing_program = safe_db_operation(
                 check_program_exists,
                 None,
-                level=level,
                 college=college,
-                program_name=program_name
+                program_name=program_name,
+                graduation_year=grad_year
             )
 
             if existing_program:
                 # Program exists. Auto join them to it
                 program_id = existing_program['id']
+                safe_db_operation(link_user_to_program, False, telegram_id, program_id)
+                
                 user_sessions[telegram_id] = {
                     "program_id": program_id,
                     "stage": "authenticated"
                 }
 
                 kb = InlineKeyboardMarkup(row_width=2)
-                kb.add(
-                    InlineKeyboardButton(" All Courses", callback_data="hub:courses"),
-                    InlineKeyboardButton(" Add Resource", callback_data="hub:add"),
-                    InlineKeyboardButton(" Get Resource", callback_data="hub:get"),
-                    InlineKeyboardButton(" Help Info", callback_data="hub:help"),
-                )
-                kb.add(InlineKeyboardButton(" Re-register (Reset)", callback_data="hub:reregister"))
+                kb.add(InlineKeyboardButton(" Proceed to Hub", callback_data="hub:enter_own"))
+                kb.add(InlineKeyboardButton(" Contact Help Center", callback_data="action:contact_admin"))
 
                 edit_message_safe(
                     bot,
-                    message.chat.id,
+                    call.message.chat.id,
                     loading_msg_id,
-                    f" *Welcome to the {program_name} {level} Hub!*\n\nWhat would you like to do?",
+                    " Welcome! Your program hub has already been created.",
                     reply_markup=kb,
                     parse_mode="Markdown"
                 )
             else:
                 # Program doesn't exist. Prepare activation.
                 user_sessions[telegram_id]['pending_program'] = {
-                    "level": level, "college": college, "program_name": program_name, "saved_user_id": saved_user_id
+                    "level": level, "college": college, "program_name": program_name, "grad_year": grad_year, "saved_user_id": saved_user_id
                 }
 
                 kb = InlineKeyboardMarkup()
-                kb.add(InlineKeyboardButton(" Activate Hub", callback_data="action:activate_hub"))
+                kb.add(InlineKeyboardButton(" Activate", callback_data="action:activate_hub"))
                 
                 edit_message_safe(
                     bot,
-                    message.chat.id,
+                    call.message.chat.id,
                     loading_msg_id,
-                    f" The hub for **{program_name} {level}** doesn't exist yet.\n\nClick below to activate it and register your courses.",
+                    " Welcome! This program does not have a hub yet. Please proceed to activate it.",
                     reply_markup=kb,
                     parse_mode="Markdown"
                 )
@@ -173,7 +273,7 @@ def start_handler(bot):
         except DatabaseTimeoutError:
             edit_message_safe(
                 bot,
-                message.chat.id,
+                call.message.chat.id,
                 loading_msg_id,
                 " *System is busy*\n\nPlease try again in a moment.",
                 parse_mode="Markdown"
@@ -182,7 +282,7 @@ def start_handler(bot):
             print(f"ERROR processing registration: {e}")
             edit_message_safe(
                 bot,
-                message.chat.id,
+                call.message.chat.id,
                 loading_msg_id,
                 " An error occurred during registration. Please try again.",
                 parse_mode="Markdown"
@@ -206,36 +306,82 @@ def start_handler(bot):
         saved_user_id = pending_program['saved_user_id']
         
         try:
-            # Save and activate program
-            program_id = safe_db_operation(save_program, None, level, college, program_name, saved_user_id)
-            safe_db_operation(activate_program, None, program_id, is_paid=False)
+            # First, check if program already exists somehow (race condition)
+            program_id = safe_db_operation(check_program_exists, None, college, program_name, pending_program['grad_year'])
+            if not program_id:
+                # Create the program in PENDING mode (is_active=FALSE)
+                program_id = safe_db_operation(
+                    save_program, 
+                    None, 
+                    level, 
+                    college, 
+                    program_name, 
+                    saved_user_id, 
+                    pending_program['grad_year']
+                )
+            else:
+                program_id = program_id['id']
+
+            # Generate Payment Link (₦3,000)
+            ref = generate_payment_reference(telegram_id, program_id, 'ACT')
+            # Assuming we use a placeholder email if not provided
+            email = f"user_{telegram_id}@stackaiv.com"
             
-            user_sessions[telegram_id] = {
-                "program_id": program_id,
-                "stage": "authenticated"
-            }
-            
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton(" Add Courses", callback_data="notes:add_courses"))
-            
-            edit_message_safe(
-                bot,
-                call.message.chat.id,
-                loading_msg_id,
-                f" *{program_name} {level} Hub Activated!*\n\nPlease proceed to register your courses.",
-                reply_markup=kb,
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"ERROR activating hub: {e}")
-            edit_message_safe(
-                bot,
-                call.message.chat.id,
-                loading_msg_id,
-                " Failed to activate hub. Please try again later.",
-                parse_mode="Markdown"
+            pay_data = safe_db_operation(
+                initialize_transaction,
+                None,
+                email=email,
+                amount=3000,
+                reference=ref,
+                payment_type='hub_activation',
+                program_id=program_id
             )
 
+            if pay_data and pay_data.get('status'):
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton(" 💳 Pay ₦3,000", url=pay_data['authorization_url']))
+                kb.add(InlineKeyboardButton(" Back to Home", callback_data="action:goto_home"))
+                
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    " 🚀 *Activate Your Program Hub*\n\nA fee of **₦3,000** is required to initialize this hub. Once paid, you and your coursemates will have full access.\n\nClick the button below to pay via Paystack:",
+                    reply_markup=kb,
+                    parse_mode="Markdown"
+                )
+            else:
+                error = pay_data.get('error', 'Initialization failed') if pay_data else 'Service unreachable'
+                edit_message_safe(bot, call.message.chat.id, loading_msg_id, f" ❌ Payment Error: {error}")
+        except Exception as e:
+            print(f"ERROR activating hub: {e}")
+            edit_message_safe(bot, call.message.chat.id, loading_msg_id, " Failed to initialize payment.")
+
+    @bot.message_handler(func=lambda m: user_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_courses")
+    def collect_initial_courses(message):
+        telegram_id = message.from_user.id
+        text = message.text
+        program_id = user_sessions.get(telegram_id, {}).get("program_id")
+        
+        if not program_id:
+            bot.send_message(message.chat.id, " Session expired. Please /start again.")
+            return
+
+        courses = [c.strip() for c in text.split('|') if c.strip()]
+        
+        if not courses:
+            bot.send_message(message.chat.id, " Invalid format. Try: MAT 101 | CSC 141")
+            return
+            
+        loading_msg_id = send_loading_message(bot, message.chat.id, " *Saving courses...*")
+        
+        try:
+            safe_db_operation(save_courses, None, program_id, courses)
+            user_sessions[telegram_id]["stage"] = "authenticated"
+            program = safe_db_operation(get_program_info, None, program_id)
+            show_program_hub_panel(bot, message.chat.id, program, message_id=loading_msg_id)
+        except Exception as e:
+            edit_message_safe(bot, message.chat.id, loading_msg_id, " Could not save courses. Try again.", parse_mode="Markdown")
 
     @bot.callback_query_handler(func=lambda call: call.data == "hub:enter_own")
     def enter_own_hub(call):
@@ -254,24 +400,7 @@ def start_handler(bot):
                 "stage": "authenticated"
             }
             program = safe_db_operation(get_program_info, None, program_id)
-            
-            kb = InlineKeyboardMarkup(row_width=2)
-            kb.add(
-                InlineKeyboardButton(" All Courses", callback_data="hub:courses"),
-                InlineKeyboardButton(" Add Resource", callback_data="hub:add"),
-                InlineKeyboardButton(" Get Resource", callback_data="hub:get"),
-                InlineKeyboardButton(" Help Info", callback_data="hub:help"),
-            )
-            kb.add(InlineKeyboardButton(" Re-register", callback_data="hub:reregister"))
-            
-            edit_message_safe(
-                bot,
-                call.message.chat.id,
-                loading_msg_id,
-                f" You're now in your **{program['program_name']} {program['level']}** digital central resource hub.\n\nWhat would you like to do?",
-                reply_markup=kb,
-                parse_mode="Markdown"
-            )
+            show_program_hub_panel(bot, call.message.chat.id, program, message_id=loading_msg_id)
         except Exception as e:
             edit_message_safe(
                 bot,
@@ -308,23 +437,8 @@ def start_handler(bot):
                         "program_id": program_id,
                         "stage": "authenticated"
                     }
-                    kb = InlineKeyboardMarkup(row_width=2)
-                    kb.add(
-                        InlineKeyboardButton(" All Courses", callback_data="hub:courses"),
-                        InlineKeyboardButton(" Add Resource", callback_data="hub:add"),
-                        InlineKeyboardButton(" Get Resource", callback_data="hub:get"),
-                        InlineKeyboardButton(" Help Info", callback_data="hub:help"),
-                    )
-                    kb.add(InlineKeyboardButton(" Re-register", callback_data="hub:reregister"))
-                    
-                    edit_message_safe(
-                        bot,
-                        message.chat.id,
-                        loading_msg_id,
-                        f" *Welcome back!*\n\nYou're now in your *{program['program_name']} {program['level']}* digital central resource hub.\n\nWhat would you like to do?",
-                        parse_mode="Markdown",
-                        reply_markup=kb
-                    )
+                    safe_db_operation(link_user_to_program, False, user_id, program_id)
+                    show_program_hub_panel(bot, message.chat.id, program, message_id=loading_msg_id, extra_text="*Welcome back!*\n\n")
                 else:
                     edit_message_safe(
                         bot,
@@ -489,4 +603,285 @@ def start_handler(bot):
                 loading_msg_id,
                 " Failed to send message. Please try again later.",
                 parse_mode="Markdown"
+            )
+    # -------------------------
+    # Hub Promotion & Archives
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == 'hub:promote')
+    def hub_promote_prompt(call):
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton(' ⚠️ Yes, Promote Hub', callback_data='promote:confirm'))
+        kb.add(InlineKeyboardButton(' Cancel', callback_data='hub:enter_own'))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=' *Promote Hub Level*\n\nThis will advance your cohort\'s academic level (e.g., 100L → 200L).\n\n'
+                 ' *Note:* All current courses will be frozen and moved to the Archives. Current students will need to pay to access them later.\n\n'
+                 'Are you sure you want to proceed?',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'promote:confirm')
+    def hub_promote_execution(call):
+        user_id = call.from_user.id
+        # get_active_program_id is imported from .notes
+        program_id = get_active_program_id(user_id)
+        
+        loading_id = send_loading_message(bot, call.message.chat.id, ' *Advancing Cohort Level...*')
+        
+        # promote_program is imported from queries
+        new_level = safe_db_operation(promote_program, None, program_id)
+        
+        if new_level:
+            edit_message_safe(
+                bot, call.message.chat.id, loading_id,
+                f' 🚀 *Promotion Successful!*\n\nYour hub has been advanced to **{new_level}**.\n\n'
+                'All previous level courses have been archived.',
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(' Back to Hub', callback_data='hub:enter_own'))
+            )
+        else:
+            edit_message_safe(bot, call.message.chat.id, loading_id, ' Error: Promotion failed.')
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'hub:archives')
+    def hub_archives_root(call):
+        user_id = call.from_user.id
+        program_id = get_active_program_id(user_id)
+        program = safe_db_operation(get_program_info, None, program_id)
+        
+        if not program: return
+        
+        # get_past_levels is imported from queries
+        past_levels = safe_db_operation(get_past_levels, [], program_id, program['level'])
+        
+        if not past_levels:
+            bot.answer_callback_query(call.id, 'No past levels found in archives.', show_alert=True)
+            return
+
+        kb = InlineKeyboardMarkup(row_width=2)
+        for lvl in past_levels:
+            kb.add(InlineKeyboardButton(f' {lvl}', callback_data=f'archive:lvl:{lvl}'))
+        kb.add(InlineKeyboardButton(' Back', callback_data='hub:enter_own'))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=' *🗄 Academic Vault (Archives)*\n\nSelect a past level to browse:',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:lvl:'))
+    def archive_level_selected(call):
+        level = call.data.split(':')[2]
+        kb = InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            InlineKeyboardButton(' Alpha Semester', callback_data=f'archive:sem:{level}:Alpha'),
+            InlineKeyboardButton(' Omega Semester', callback_data=f'archive:sem:{level}:Omega')
+        )
+        kb.add(InlineKeyboardButton(' Back', callback_data='hub:archives'))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f' *{level} Archives*\n\nSelect the semester:',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:sem:'))
+    def archive_semester_selected(call):
+        parts = call.data.split(':')
+        level = parts[2]
+        semester = parts[3]
+        program_id = get_active_program_id(call.from_user.id)
+        
+        # get_courses_by_level_and_semester is imported from queries
+        courses = safe_db_operation(get_courses_by_level_and_semester, [], program_id, level, semester)
+        
+        if not courses:
+            bot.answer_callback_query(call.id, f'No courses found for {level} {semester}.', show_alert=True)
+            return
+
+        kb = InlineKeyboardMarkup(row_width=2)
+        for c in courses:
+            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f'archive:get:{level}:{c["id"]}'))
+        kb.add(InlineKeyboardButton(' Back', callback_data=f'archive:lvl:{level}'))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f' *{level} {semester} Courses*\n\nSelect a course to access resources:',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    # -------------------------
+    # Hub Promotion & Archives
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == 'hub:promote')
+    def hub_promote_prompt(call):
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton(' ⚠️ Yes, Promote Hub', callback_data='promote:confirm'))
+        kb.add(InlineKeyboardButton(' Cancel', callback_data='hub:enter_own'))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=' *Promote Hub Level*\n\nThis will advance your cohort\'s academic level (e.g., 100L → 200L).\n\n'
+                 ' *Note:* All current courses will be frozen and moved to the Archives. Current students will need to pay to access them later.\n\n'
+                 'Are you sure you want to proceed?',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'promote:confirm')
+    def hub_promote_execution(call):
+        user_id = call.from_user.id
+        # get_active_program_id is imported from .notes
+        program_id = get_active_program_id(user_id)
+        
+        loading_id = send_loading_message(bot, call.message.chat.id, ' *Advancing Cohort Level...*')
+        
+        # promote_program is imported from queries
+        new_level = safe_db_operation(promote_program, None, program_id)
+        
+        if new_level:
+            edit_message_safe(
+                bot, call.message.chat.id, loading_id,
+                f' 🚀 *Promotion Successful!*\n\nYour hub has been advanced to **{new_level}**.\n\n'
+                'All previous level courses have been archived.',
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(' Back to Hub', callback_data='hub:enter_own'))
+            )
+        else:
+            edit_message_safe(bot, call.message.chat.id, loading_id, ' Error: Promotion failed.')
+
+    @bot.callback_query_handler(func=lambda call: call.data == 'hub:archives')
+    def hub_archives_root(call):
+        user_id = call.from_user.id
+        program_id = get_active_program_id(user_id)
+        program = safe_db_operation(get_program_info, None, program_id)
+        
+        if not program: return
+        
+        # get_past_levels is imported from queries
+        past_levels = safe_db_operation(get_past_levels, [], program_id, program['level'])
+        
+        if not past_levels:
+            bot.answer_callback_query(call.id, 'No past levels found in archives.', show_alert=True)
+            return
+
+        kb = InlineKeyboardMarkup(row_width=2)
+        for lvl in past_levels:
+            kb.add(InlineKeyboardButton(f' {lvl}', callback_data=f'archive:lvl:{lvl}'))
+        kb.add(InlineKeyboardButton(' Back', callback_data='hub:enter_own'))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=' *🗄 Academic Vault (Archives)*\n\nSelect a past level to browse:',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:lvl:'))
+    def archive_level_selected(call):
+        level = call.data.split(':')[2]
+        kb = InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            InlineKeyboardButton(' Alpha Semester', callback_data=f'archive:sem:{level}:Alpha'),
+            InlineKeyboardButton(' Omega Semester', callback_data=f'archive:sem:{level}:Omega')
+        )
+        kb.add(InlineKeyboardButton(' Back', callback_data='hub:archives'))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f' *{level} Archives*\n\nSelect the semester:',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:sem:'))
+    def archive_semester_selected(call):
+        parts = call.data.split(':')
+        level = parts[2]
+        semester = parts[3]
+        program_id = get_active_program_id(call.from_user.id)
+        
+        # get_courses_by_level_and_semester is imported from queries
+        courses = safe_db_operation(get_courses_by_level_and_semester, [], program_id, level, semester)
+        
+        if not courses:
+            bot.answer_callback_query(call.id, f'No courses found for {level} {semester}.', show_alert=True)
+            return
+
+        kb = InlineKeyboardMarkup(row_width=2)
+        for c in courses:
+            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f'archive:get:{level}:{c["id"]}'))
+        kb.add(InlineKeyboardButton(' Back', callback_data=f'archive:lvl:{level}'))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f' *{level} {semester} Courses*\n\nSelect a course to access resources:',
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:get:'))
+    def handle_archive_access(call):
+        parts = call.data.split(':')
+        level = parts[2]
+        course_id = int(parts[3])
+        user_id = call.from_user.id
+        
+        # Check if user has access (check_archive_access imported from queries)
+        has_access = safe_db_operation(check_archive_access, False, user_id=user_id, target_level=level, target_course_id=course_id)
+        
+        if has_access:
+            bot.answer_callback_query(call.id, 'Access Granted!')
+            # bypass standard gate for this session
+            user_sessions[user_id]['archive_bypass'] = course_id
+            
+            # Show standard get resource flow
+            from .files import show_resource_types_for_get
+            show_resource_types_for_get(bot, call.message.chat.id, course_id, message_id=call.message.message_id)
+        else:
+            # Generate payment options
+            loading_id = send_loading_message(bot, call.message.chat.id, " *Initializing vault access...*")
+            email = f"user_{user_id}@stackaiv.com"
+            
+            # Course Access (₦500)
+            ref_course = generate_payment_reference(user_id, None, 'ARC_C')
+            pay_course = safe_db_operation(initialize_transaction, None, email, 500, ref_course, 'archive_access', None, course_id, None)
+            
+            # Level Access (₦2,500)
+            ref_level = generate_payment_reference(user_id, None, 'ARC_L')
+            pay_level = safe_db_operation(initialize_transaction, None, email, 2500, ref_level, 'archive_access', None, None, level)
+            
+            # Full Vault Access (₦10,000)
+            ref_full = generate_payment_reference(user_id, None, 'ARC_F')
+            pay_full = safe_db_operation(initialize_transaction, None, email, 10000, ref_full, 'archive_access', None, None, 'FULL_VAULT')
+
+            kb = InlineKeyboardMarkup()
+            if pay_course and pay_course.get('status'):
+                kb.add(InlineKeyboardButton(f' Unlock This Course (₦500)', url=pay_course['authorization_url']))
+            if pay_level and pay_level.get('status'):
+                kb.add(InlineKeyboardButton(f' Unlock All {level} (₦2,500)', url=pay_level['authorization_url']))
+            if pay_full and pay_full.get('status'):
+                kb.add(InlineKeyboardButton(f' Full Archive Bypass (₦10,000)', url=pay_full['authorization_url']))
+            
+            kb.add(InlineKeyboardButton(' Back', callback_data=f'archive:sem:{level}:Alpha'))
+            
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_id,
+                f' 🔒 *Premium Vault Access Required*\n\nHistorical resources for **{level}** are locked.\n\nChoose a subscription tier to unlock access:',
+                reply_markup=kb,
+                parse_mode='Markdown'
             )
