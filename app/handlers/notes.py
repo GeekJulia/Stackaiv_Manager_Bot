@@ -89,9 +89,14 @@ def notes_handler(bot):
     def add_courses_info(call):
         user_id = call.from_user.id
         message_id = call.message.message_id
-        
+
+        # Capture the active semester from start.py sessions so we never need to ask
+        from .start import user_sessions as start_sessions
+        active_semester = start_sessions.get(user_id, {}).get('active_semester', 'Alpha')
+
         notes_sessions[user_id] = {
-            "stage": "awaiting_courses"
+            "stage": "awaiting_courses",
+            "semester": active_semester
         }
         
         kb = InlineKeyboardMarkup()
@@ -182,54 +187,21 @@ def notes_handler(bot):
             bot.answer_callback_query(call.id, " Session expired. Start again.", show_alert=True)
             return
 
-        # NEW: Prompt for Semester selection
-        kb = InlineKeyboardMarkup(row_width=2)
-        kb.add(
-            InlineKeyboardButton(" Alpha Semester", callback_data="notes:semester:Alpha"),
-            InlineKeyboardButton(" Omega Semester", callback_data="notes:semester:Omega")
-        )
-        kb.add(InlineKeyboardButton(" Back", callback_data="notes:add_courses"))
-
-        bot.edit_message_text(
-            " *Select Semester*\n\nWhich semester are these courses for?",
-            call.message.chat.id,
-            message_id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith("notes:semester:"))
-    def handle_semester_selection(call):
-        user_id = call.from_user.id
-        semester = call.data.split(":")[2]
-        session = notes_sessions.get(user_id)
-        
-        if not session or "pending_courses" not in session:
-            bot.answer_callback_query(call.id, " Session expired.", show_alert=True)
-            return
-
-        session["semester"] = semester
+        # Use the semester captured when the user triggered add_courses (no prompt needed)
+        semester = session.get("semester", "Alpha")
         course_codes = session["pending_courses"]
-        message_id = call.message.message_id
 
-        # Show processing message
-        loading_msg_id = send_loading_message(
-            bot,
-            call.message.chat.id,
-            " *Saving courses...*"
-        )
-        
+        loading_msg_id = send_loading_message(bot, call.message.chat.id, " *Saving courses...*")
+
         try:
             program_id = get_active_program_id(user_id)
             if not program_id:
                 edit_message_safe(bot, call.message.chat.id, loading_msg_id, " Program not found.", parse_mode="Markdown")
                 return
-            
-            # Fetch current program level to tag courses
+
             program_info = safe_db_operation(get_program_info, None, program_id)
             academic_level = program_info['level'] if program_info else "Unknown"
 
-            # Save courses to database with academic_level and semester
             course_ids = safe_db_operation(save_courses, [], program_id, course_codes, academic_level, semester)
 
             notes_sessions[user_id].update({
@@ -240,7 +212,6 @@ def notes_handler(bot):
                 "message_id": message_id
             })
 
-            # Edit loading message to show resource types
             show_resource_checkboxes(bot, call.message.chat.id, user_id, loading_msg_id)
 
         except Exception as e:
@@ -468,55 +439,46 @@ def notes_handler(bot):
         session = notes_sessions.get(user_id)
 
         try:
-            # Show processing indicator
             loading_msg = bot.send_message(
                 call.message.chat.id,
                 " *Processing...*\n\n Saving your setup...",
                 parse_mode="Markdown"
             )
 
-            # Save resource types for all courses
+            # Save resource types for all newly registered courses
             selected_resources = list(session["selected_resources"])
             for course_id in session["course_ids"]:
                 save_course_resource_types(course_id, selected_resources)
 
-            #  USE NEW HELPER FUNCTION
+            # Build success message using ONLY the courses just registered
+            course_codes = session.get("course_codes", [])
+            semester = session.get("semester", "this")
+            courses_list = "\n".join([f"• {code}" for code in course_codes])
+
             program_id = get_active_program_id(user_id)
             program_info = get_program_info(program_id)
-            courses = get_courses_by_program(program_id)
-
-            # Build success message with next steps
-            courses_list = "\n".join([f"• {c['course_code']}" for c in courses])
-            semester = session.get("semester", "this")
-            
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton(" View All Courses", callback_data="hub:courses"))
-            kb.add(InlineKeyboardButton(" Add Resources", callback_data="hub:add"))
-            kb.add(InlineKeyboardButton(" Get Resources", callback_data="hub:get"))
-            kb.add(InlineKeyboardButton(" Help Center", callback_data="hub:help"))
 
             message_text = (
-                " ✅ *Setup Complete!*\n\n"
-                f"Welcome to the *{program_info['program_name']} {program_info['level']}* "
-                "Digital Resource Hub!\n\n"
-                f" *Courses Registered for {semester} Semester:*\n{courses_list}\n\n"
-                " 📋 *Departmental Verification*\n"
-                "Are these all the courses your program is taking this semester, including all electives?\n\n"
-                "_*Note:* This hub is not just for you; it serves your entire program cohort. Ensuring all courses are added allows everyone to share and access resources efficiently._\n\n"
-                "If any courses are missing, you can add them using the 'Manage Courses' option in the hub."
+                f" *{semester} Semester — Courses Registered*\n\n"
+                f"{courses_list}\n\n"
+                "⚠️ *Important Notice*\n"
+                "These courses represent your entire cohort's curriculum for this semester. "
+                "Every student in your program will depend on this list to share and access resources.\n\n"
+                "_Please ensure all departmental courses — including electives — are included before confirming._"
             )
 
-            # Delete loading message and original message
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton(" ✅ Confirm & Go to Hub", callback_data="notes:setup_done"))
+
             try:
                 bot.delete_message(call.message.chat.id, loading_msg.message_id)
             except:
                 pass
-            
             try:
                 bot.delete_message(call.message.chat.id, message_id)
             except:
                 pass
-            
+
             bot.send_message(
                 call.message.chat.id,
                 message_text,
@@ -529,10 +491,21 @@ def notes_handler(bot):
         except Exception as e:
             bot.send_message(
                 call.message.chat.id,
-                f" Error: {str(e)}\n\n"
-                "Please try again.",
+                f" Error: {str(e)}\n\nPlease try again.",
                 parse_mode="Markdown"
             )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "notes:setup_done")
+    def setup_done(call):
+        """Dismiss the confirmation and open the hub."""
+        user_id = call.from_user.id
+        from .start import user_sessions as start_sessions, show_program_hub_panel
+        program_id = get_active_program_id(user_id)
+        program = safe_db_operation(get_program_info, None, program_id)
+        if program:
+            show_program_hub_panel(bot, call.message.chat.id, program, message_id=call.message.message_id)
+        else:
+            bot.answer_callback_query(call.id, "Could not load hub. Please /start again.", show_alert=True)
 
     # -------------------------
     # Modify Resource Types
