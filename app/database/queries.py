@@ -81,7 +81,7 @@ def save_user(telegram_id, username, first_name, career=None):
         raise
 
 # -------------------------
-# Save Program Registration
+# Save Program Registration testing
 # -------------------------
 def get_user_info_by_telegram_id(telegram_id):
     """Get basic user info from the users table"""
