@@ -6,7 +6,13 @@
 #stackaiv1234 -- Password for supabase
 pg_dump -h localhost -U "Julia Esele" -d "Stackaiv DB" -f dump.sql --no-owner --no-privileges --no-comments --clean --if-exists
 pg_dump -h aws-1-eu-west-1.pooler.supabase.com -p 5432 -U postgres.pxlhsoubsjxmrzkyzcsh -d postgres -F c --no-owner --no-privileges -f supabase_backup.dump
-pg_restore --no-owner --no-privileges --clean --if-exists -d postgresql://postgres:CbozqloSitDEAONCDAiAXyUGnBjnwXch@crossover.proxy.rlwy.net:47621/railway supabase_backup.dump
+
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO public;
+
+pg_restore --no-owner --no-privileges --clean --if-exists -d postgresql://postgres:fbzoENUrMlWXCNzXYDZiSVWrOrLuhRIB@crossover.proxy.rlwy.net:47621/railway supabase_backup.dump
 
 initdb -D "C:\PostgreSQL NEWWW\data"
 pg_ctl -D "C:\PostgreSQL NEWWW\data" start
