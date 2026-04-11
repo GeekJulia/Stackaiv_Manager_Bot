@@ -487,23 +487,23 @@ def notes_handler(bot):
 
             # Build success message with next steps
             courses_list = "\n".join([f"• {c['course_code']}" for c in courses])
+            semester = session.get("semester", "this")
             
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton(" View All Courses", callback_data="hub:courses"))
             kb.add(InlineKeyboardButton(" Add Resources", callback_data="hub:add"))
             kb.add(InlineKeyboardButton(" Get Resources", callback_data="hub:get"))
-            kb.add(InlineKeyboardButton(" Help", callback_data="hub:help"))
+            kb.add(InlineKeyboardButton(" Help Center", callback_data="hub:help"))
 
             message_text = (
-                " *Setup Complete!*\n\n"
-                f"Welcome to *{program_info['program_name']} {program_info['level']}* "
+                " ✅ *Setup Complete!*\n\n"
+                f"Welcome to the *{program_info['program_name']} {program_info['level']}* "
                 "Digital Resource Hub!\n\n"
-                f" *Your Courses:*\n{courses_list}\n\n"
-                " *Next Steps:*\n"
-                "1. Add course resources\n"
-                "2. Download resources shared by others\n"
-                "3. Invite classmates to join\n\n"
-                "What would you like to do?"
+                f" *Courses Registered for {semester} Semester:*\n{courses_list}\n\n"
+                " 📋 *Departmental Verification*\n"
+                "Are these all the courses your program is taking this semester, including all electives?\n\n"
+                "_*Note:* This hub is not just for you; it serves your entire program cohort. Ensuring all courses are added allows everyone to share and access resources efficiently._\n\n"
+                "If any courses are missing, you can add them using the 'Manage Courses' option in the hub."
             )
 
             # Delete loading message and original message

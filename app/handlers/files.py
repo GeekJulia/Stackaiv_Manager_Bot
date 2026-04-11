@@ -155,26 +155,44 @@ def files_handler(bot):
         )
         
         try:
+            from .start import user_sessions
+            user_id = call.from_user.id
+            session = user_sessions.get(user_id, {})
+            current_semester = session.get('active_semester', 'Alpha')
+            
             #  USE NEW HELPER FUNCTION
-            program_id = get_active_program_id(call.from_user.id)
+            program_id = get_active_program_id(user_id)
             courses = []
             if program_id:
-                courses = safe_db_operation(get_courses_by_program, [], program_id)
+                # Filter by current semester
+                courses = safe_db_operation(get_courses_by_program, [], program_id, semester=current_semester)
 
-            text = " *Registered Courses*\n\n"
             if courses:
+                text = f" *Registered Courses ({current_semester})*\n\n"
                 for c in courses:
                     text += f"• {c['course_code']}\n"
+                
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    text,
+                    parse_mode="Markdown"
+                )
             else:
-                text += "No courses registered yet."
-
-            edit_message_safe(
-                bot,
-                call.message.chat.id,
-                loading_msg_id,
-                text,
-                parse_mode="Markdown"
-            )
+                text = f" *No courses registered for {current_semester} semester yet.*"
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
+                
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    text,
+                    parse_mode="Markdown",
+                    reply_markup=kb
+                )
             
         except DatabaseTimeoutError:
             edit_message_safe(
@@ -206,19 +224,30 @@ def files_handler(bot):
         )
         
         try:
+            from .start import user_sessions
+            user_id = call.from_user.id
+            session = user_sessions.get(user_id, {})
+            current_semester = session.get('active_semester', 'Alpha')
+            
             #  USE NEW HELPER FUNCTION
-            program_id = get_active_program_id(call.from_user.id)
+            program_id = get_active_program_id(user_id)
             courses = []
             if program_id:
-                courses = safe_db_operation(get_courses_by_program, [], program_id)
+                # Filter by current semester
+                courses = safe_db_operation(get_courses_by_program, [], program_id, semester=current_semester)
             
             if not courses:
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
+                
                 edit_message_safe(
                     bot,
                     call.message.chat.id,
                     loading_msg_id,
-                    " *No Courses Found*\n\nYou need to add courses first before uploading resources.",
-                    parse_mode="Markdown"
+                    f" *No Courses Found ({current_semester})*\n\nYou need to add courses for {current_semester} semester first.",
+                    parse_mode="Markdown",
+                    reply_markup=kb
                 )
                 return
 
@@ -436,22 +465,32 @@ def files_handler(bot):
         )
         
         try:
+            from .start import user_sessions
+            user_id = call.from_user.id
+            session = user_sessions.get(user_id, {})
+            current_semester = session.get('active_semester', 'Alpha')
+                
             #  USE NEW HELPER FUNCTION
-            program_id = get_active_program_id(call.from_user.id)
+            program_id = get_active_program_id(user_id)
             courses = []
             if program_id:
-                # NEW: Fetch ONLY active level courses for the main Hub menu
+                # NEW: Fetch ONLY active level/semester courses for the main Hub menu
                 program = safe_db_operation(get_program_info, None, program_id)
                 current_level = program['level'] if program else None
-                courses = safe_db_operation(get_courses_by_program, [], program_id, academic_level=current_level)
+                courses = safe_db_operation(get_courses_by_program, [], program_id, academic_level=current_level, semester=current_semester)
 
             if not courses:
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
+                
                 edit_message_safe(
                     bot,
                     call.message.chat.id,
                     loading_msg_id,
-                    " *No Courses Found*\n\nYou need to add courses first before downloading resources.",
-                    parse_mode="Markdown"
+                    f" *No Courses Found ({current_semester})*\n\nYou need to add courses for {current_semester} semester first.",
+                    parse_mode="Markdown",
+                    reply_markup=kb
                 )
                 return
 

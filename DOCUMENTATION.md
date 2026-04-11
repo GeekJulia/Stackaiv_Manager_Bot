@@ -14,6 +14,9 @@ GRANT ALL ON SCHEMA public TO public;
 
 pg_restore --no-owner --no-privileges --clean --if-exists -d postgresql://postgres:fbzoENUrMlWXCNzXYDZiSVWrOrLuhRIB@crossover.proxy.rlwy.net:47621/railway supabase_backup.dump
 
+pg_dump -h localhost -U "Julia Esele" -d "Stackaiv DB" -F c --no-owner --no-privileges -f local_backup.dump
+pg_restore --no-owner --no-privileges --clean --if-exists -d postgresql://postgres:fbzoENUrMlWXCNzXYDZiSVWrOrLuhRIB@crossover.proxy.rlwy.net:47621/railway local_backup.dump
+
 initdb -D "C:\PostgreSQL NEWWW\data"
 pg_ctl -D "C:\PostgreSQL NEWWW\data" start
 pg_ctl -D "C:\PostgreSQL NEWWW\data" status

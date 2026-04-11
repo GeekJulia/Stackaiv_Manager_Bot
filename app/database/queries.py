@@ -287,7 +287,7 @@ def get_courses_by_program(program_id, academic_level=None, semester=None):
     """Fetch courses for a program, optionally filtered by level and semester."""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
-            query = "SELECT id, course_code FROM courses WHERE program_id = %s"
+            query = "SELECT id, course_code, semester FROM courses WHERE program_id = %s"
             params = [program_id]
             
             if academic_level:
@@ -299,7 +299,7 @@ def get_courses_by_program(program_id, academic_level=None, semester=None):
                 
             query += " ORDER BY course_code"
             cursor.execute(query, params)
-            return [{"id": r[0], "course_code": r[1]} for r in cursor.fetchall()]
+            return [{"id": r[0], "course_code": r[1], "semester": r[2]} for r in cursor.fetchall()]
 
 
 def save_resource(course_id, resource_type_id, file_id, file_name, uploader_id):
@@ -437,7 +437,7 @@ def get_program_info(program_id, include_user_id=False):
             return None
 
 def clear_user_program_data(program_id):
-    """Clear all courses and resource types associated with a program"""
+    """Clear all courses and resource types associated with a program (FULL WIPE)"""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             # 1. Delete all course_resource_types for courses in this program
@@ -463,6 +463,38 @@ def clear_user_program_data(program_id):
             
             conn.commit()
             return True
+
+def clear_semester_data(program_id, semester):
+    """Clear all courses and resources associated with a specific semester in a program"""
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                # 1. Delete resource types for courses in this semester
+                cursor.execute("""
+                    DELETE FROM course_resource_types 
+                    WHERE course_id IN (
+                        SELECT id FROM courses WHERE program_id = %s AND semester = %s
+                    )
+                """, (program_id, semester))
+                
+                # 2. Delete resources for courses in this semester
+                cursor.execute("""
+                    DELETE FROM resources 
+                    WHERE course_id IN (
+                        SELECT id FROM courses WHERE program_id = %s AND semester = %s
+                    )
+                """, (program_id, semester))
+                
+                # 3. Delete courses for this semester
+                cursor.execute("""
+                    DELETE FROM courses WHERE program_id = %s AND semester = %s
+                """, (program_id, semester))
+                
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"ERROR: clear_semester_data failed - {str(e)}")
+        return False
 
 # -------------------------
 # GROUP MANAGEMENT FUNCTIONS

@@ -8,6 +8,7 @@ from ..database.queries import (
     check_program_exists,
     get_program_creator,
     clear_user_program_data,
+    clear_semester_data,
     activate_program,
     get_user_info_by_telegram_id,
     remove_duplicate_courses,
@@ -35,6 +36,15 @@ QUOTES = [
 ]
 
 def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""):
+    # Ensure session has active_semester
+    session = user_sessions.get(chat_id, {})
+    if 'active_semester' not in session:
+        session['active_semester'] = 'Alpha'
+        user_sessions[chat_id] = session
+    
+    current_semester = session['active_semester']
+    other_semester = 'Omega' if current_semester == 'Alpha' else 'Alpha'
+    
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
         InlineKeyboardButton(" All Courses", callback_data="hub:courses"),
@@ -43,21 +53,27 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
         InlineKeyboardButton(" Help Info", callback_data="hub:help"),
     )
     
+    # Semester Toggle Button
+    kb.add(InlineKeyboardButton(f"🔄 Switch to {other_semester} Semester", callback_data=f"hub:toggle_semester:{other_semester}"))
+    
     # New Archive and Promote Buttons
     kb.add(InlineKeyboardButton(" 🗄 Past Level Archives", callback_data="hub:archives"))
     
     # Check if user is the creator to show 'Promote' button
     creator = safe_db_operation(get_program_creator, None, program['id'])
-    # chat_id for private chat is usually telegram_id. In start_handler, chat_id is message.chat.id
-    # We'll assume the person interacting is the one whose chat it is.
     if creator and creator['telegram_id'] == chat_id:
         kb.add(InlineKeyboardButton(" 📊 Promote Hub Level", callback_data="hub:promote"))
 
-    kb.add(InlineKeyboardButton(" Re-register (Reset)", callback_data="hub:reregister"))
+    kb.add(InlineKeyboardButton(" ➕ Add/Manage Courses", callback_data="notes:start"))
+    kb.add(InlineKeyboardButton(" 🔄 Re-register (Reset)", callback_data="hub:reregister"))
     
     text = f" *{program['program_name']} {program['level']} Hub*\n"
     if program.get('graduation_year'):
         text += f"_Class of {program['graduation_year']}_\n"
+    
+    # Show active semester
+    text += f"📊 *Semester:* _{current_semester}_\n"
+    
     text += f"\n{extra_text}What would you like to do?"
     
     if message_id:
@@ -410,6 +426,26 @@ def start_handler(bot):
                 parse_mode="Markdown"
             )
 
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("hub:toggle_semester:"))
+    def toggle_semester(call):
+        user_id = call.from_user.id
+        new_semester = call.data.split(":")[2]
+        
+        session = user_sessions.get(user_id, {})
+        session['active_semester'] = new_semester
+        user_sessions[user_id] = session
+        
+        # Reload the hub panel
+        program_id = session.get("program_id") or safe_db_operation(get_user_program_id, None, user_id)
+        if program_id:
+            program = safe_db_operation(get_program_info, None, program_id)
+            if program:
+                show_program_hub_panel(bot, call.message.chat.id, program, message_id=call.message.message_id)
+                bot.answer_callback_query(call.id, f"Switched to {new_semester} Semester")
+                return
+        
+        bot.answer_callback_query(call.id, "Error switching semester.")
+
     @bot.callback_query_handler(func=lambda call: call.data == "action:goto_space")
     def goto_program_space(call):
         bot.send_message(
@@ -459,38 +495,48 @@ def start_handler(bot):
 
     @bot.callback_query_handler(func=lambda call: call.data == "hub:reregister")
     def handle_reregister(call):
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton(" Yes, Clear Everything", callback_data="reregister:confirm"))
-        kb.add(InlineKeyboardButton(" Cancel", callback_data="reregister:cancel"))
+        user_id = call.from_user.id
+        session = user_sessions.get(user_id, {})
+        semester = session.get('active_semester', 'Alpha')
         
-        bot.send_message(
-            call.message.chat.id,
-            " *Warning: Re-registration*\n\nThis will **delete all your courses and resource types**.\nYou'll need to start over from scratch.\n\nAre you sure you want to continue?",
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton(f" ⚠️ Yes, Clear {semester} Semester", callback_data=f"reregister:confirm:{semester}"))
+        kb.add(InlineKeyboardButton(" 📞 Contact Admin (Fix Mistake)", callback_data="action:contact_admin_mistake"))
+        kb.add(InlineKeyboardButton(" Cancel", callback_data="hub:enter_own"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f" ⚠️ *Warning: Re-registration*\n\nYou are about to clear all courses and resources for the **{semester} Semester**.\n\n"
+                 "This action is useful if there was a major mistake in course registration.\n\n"
+                 "If you only have a minor error, please contact an Admin instead of wiping your data.",
             parse_mode="Markdown",
             reply_markup=kb
         )
 
-    @bot.callback_query_handler(func=lambda call: call.data == "reregister:confirm")
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("reregister:confirm:"))
     def confirm_reregister(call):
         user_id = call.from_user.id
-        loading_msg_id = send_loading_message(bot, call.message.chat.id, " *Clearing your data...*")
+        semester = call.data.split(":")[2]
+        
+        loading_msg_id = send_loading_message(bot, call.message.chat.id, f" *Clearing {semester} data...*")
         try:
             session = user_sessions.get(user_id, {})
             program_id = session.get("program_id") or safe_db_operation(get_user_program_id, None, user_id)
             if program_id:
-                safe_db_operation(clear_user_program_data, None, program_id)
+                safe_db_operation(clear_semester_data, None, program_id, semester)
             
             kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton(" Add Courses", callback_data="notes:add_courses"))
-            kb.add(InlineKeyboardButton(" Back to Space", callback_data="hub:enter_own"))
+            kb.add(InlineKeyboardButton(" ➕ Add Courses", callback_data="notes:add_courses"))
+            kb.add(InlineKeyboardButton(" ⬅️ Back to Hub", callback_data="hub:enter_own"))
             
             edit_message_safe(
                 bot, call.message.chat.id, loading_msg_id,
-                " *Data cleared successfully!*\n\nAll courses and resource types have been removed.\nYou can now add your courses again.",
+                f" ✅ *{semester} Semester Data cleared!*\n\nAll courses and resources for this semester have been removed.\nYou can now add your courses again.",
                 parse_mode="Markdown", reply_markup=kb
             )
         except Exception as e:
-            edit_message_safe(bot, call.message.chat.id, loading_msg_id, " An error occurred.", parse_mode="Markdown")
+            edit_message_safe(bot, call.message.chat.id, loading_msg_id, " ❌ An error occurred.", parse_mode="Markdown")
 
     @bot.callback_query_handler(func=lambda call: call.data == "reregister:cancel")
     def cancel_reregister(call):
@@ -564,6 +610,40 @@ def start_handler(bot):
             " *Contact Admin*\n\nPlease type your message below. It will be sent directly to our support team.\n\n_Type your message now..._",
             parse_mode="Markdown"
         )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "action:contact_admin_mistake")
+    def contact_admin_mistake(call):
+        user_id = call.from_user.id
+        username = call.from_user.username or "N/A"
+        first_name = call.from_user.first_name
+        
+        auto_msg = f"I made a mistake in my course registration/setup. Please help me fix it. (ID: {user_id})"
+        
+        loading_msg_id = send_loading_message(bot, call.message.chat.id, " *Notifying Admin...*")
+        
+        try:
+            safe_db_operation(
+                save_admin_message,
+                None,
+                telegram_id=user_id,
+                username=username,
+                first_name=first_name,
+                message_text=auto_msg,
+                message_type='support'
+            )
+            
+            edit_message_safe(
+                bot,
+                call.message.chat.id,
+                loading_msg_id,
+                " ✅ *Admin Notified!*\n\nOur support team has been informed about your registration issue.\n"
+                f"We will reach out to you directly at @{username} soon.\n\n"
+                "You can continue using the Hub in the meantime.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(" Back to Hub", callback_data="hub:enter_own"))
+            )
+        except Exception as e:
+            edit_message_safe(bot, call.message.chat.id, loading_msg_id, " ❌ Failed to notify admin.")
 
     @bot.message_handler(func=lambda m: user_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_admin_message")
     def handle_admin_message(message):
