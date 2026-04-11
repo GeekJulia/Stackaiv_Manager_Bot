@@ -285,7 +285,7 @@ def groups_handler(bot):
                 chat_id,
                 "System is busy. Please try again in a moment.",
                 parse_mode="Markdown"
-            )
+             )#//test
             return
         
         # Extract course code
