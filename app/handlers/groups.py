@@ -13,7 +13,7 @@ from ..database.queries import (
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
-from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
+from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe, escape_html
 group_sessions = TTLDict()
 # Sessions are keyed by f"{chat_id}_{message_id}" to support concurrent uploads
 
@@ -430,12 +430,13 @@ def groups_handler(bot):
         queue = batch_queues[chat_id]
         
         # Build file list text
-        file_list = "Files queued for upload:\n\n"
+        file_list = "<b>Files queued for upload:</b>\n\n"
         for i, f in enumerate(queue, 1):
-            detected = f['course_code'] if f['course_code'] else "No course detected"
-            file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
+            detected = escape_html(f['course_code']) if f['course_code'] else "No course detected"
+            fname = escape_html(f['file_name'])
+            file_list += f"{i}. <code>{fname}</code>\n   → {detected}\n"
         
-        file_list += f"\n*{len(queue)} file(s) ready*\n\n"
+        file_list += f"\n<b>{len(queue)} file(s) ready</b>\n\n"
         file_list += "Select how to assign them:"
         
         # Build keyboard - "Assign All Together" and "Assign Individually"
@@ -448,7 +449,7 @@ def groups_handler(bot):
         msg = bot.send_message(
             chat_id,
             file_list,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=kb
         )
         
@@ -491,7 +492,7 @@ def groups_handler(bot):
             chat_id=chat_id,
             message_id=call.message.message_id,
             text="Select the course for all files:",
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=kb
         )
         session["stage"] = "batch_selecting_course"
@@ -565,12 +566,12 @@ def groups_handler(bot):
                     break
         
         queue = batch_queues[chat_id]
-        file_list = f"*{len(queue)} files ready to upload*\n\n"
-        file_list += f"**Course:** `{course['course_code'] if course else 'Not selected'}`\n"
-        file_list += f"**Type:** `{resource_type['name'] if resource_type else 'Not selected'}`\n\n"
+        file_list = f"<b>{len(queue)} files ready to upload</b>\n\n"
+        file_list += f"<b>Course:</b> <code>{escape_html(course['course_code']) if course else 'Not selected'}</code>\n"
+        file_list += f"<b>Type:</b> <code>{escape_html(resource_type['name']) if resource_type else 'Not selected'}</code>\n\n"
         file_list += "Files:\n"
         for i, f in enumerate(queue, 1):
-            file_list += f"  {i}. `{f['file_name']}`\n"
+            file_list += f"  {i}. <code>{escape_html(f['file_name'])}</code>\n"
         
         # Now show "Process All" button
         kb = InlineKeyboardMarkup()
@@ -584,7 +585,7 @@ def groups_handler(bot):
             chat_id=chat_id,
             message_id=call.message.message_id,
             text=file_list,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=kb
         )
         session["stage"] = "batch_ready_to_process"
@@ -637,19 +638,20 @@ def groups_handler(bot):
         kb.add(InlineKeyboardButton("Cancel", callback_data="batch:cancel"))
         
         queue = batch_queues[chat_id]
-        file_list = " *Files queued for upload:*\n\n"
+        file_list = " <b>Files queued for upload:</b>\n\n"
         for i, f in enumerate(queue, 1):
-            detected = f['course_code'] if f['course_code'] else "No course detected"
-            file_list += f"{i}. `{f['file_name']}`\n   → {detected}\n"
+            detected = escape_html(f['course_code']) if f['course_code'] else "No course detected"
+            fname = escape_html(f['file_name'])
+            file_list += f"{i}. <code>{fname}</code>\n   → {detected}\n"
         
-        file_list += f"\n*{len(queue)} file(s) ready*\n\n"
+        file_list += f"\n<b>{len(queue)} file(s) ready</b>\n\n"
         file_list += "Select course for all files:"
         
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
             text=file_list,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=kb
         )
         session["stage"] = "batch_awaiting_course"
@@ -693,8 +695,8 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=f"*Processing File {idx + 1} of {len(queue)}*\n\n`{file_data['file_name']}`\n\nSelect Course:",
-            parse_mode="Markdown",
+            text=f"<b>Processing File {idx + 1} of {len(queue)}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\nSelect Course:",
+            parse_mode="HTML",
             reply_markup=kb
         )
         session["stage"] = "batch_indiv_course"
@@ -723,8 +725,8 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text=f"*Processing File {idx + 1} of {len(batch_queues[chat_id])}*\n\n`{file_data['file_name']}`\n\nSelect Resource Type:",
-            parse_mode="Markdown",
+            text=f"<b>Processing File {idx + 1} of {len(batch_queues[chat_id])}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\nSelect Resource Type:",
+            parse_mode="HTML",
             reply_markup=kb
         )
         session["stage"] = "batch_indiv_type"
@@ -758,7 +760,7 @@ def groups_handler(bot):
             chat_id=chat_id,
             message_id=message_id,
             text=f"Processing {len(queue)} file(s)...",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         
         success_count = 0
@@ -805,14 +807,14 @@ def groups_handler(bot):
         result_msg += f"{success_count} file(s) added\n"
         if duplicate_count > 0:
             result_msg += f"{duplicate_count} file(s) skipped (already exist)\n"
-        result_msg += f"\nApproved by: @{approver_username}"
+        result_msg += f"\nApproved by: @{escape_html(approver_username)}"
         
         try:
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=result_msg,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
         except Exception:
             pass

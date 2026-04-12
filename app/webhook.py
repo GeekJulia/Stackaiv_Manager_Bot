@@ -24,6 +24,8 @@ gunicorn_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers = gunicorn_logger.handlers
 app.logger.setLevel(logging.INFO)
 
+from .utils.messages import escape_html
+
 #  ADD ERROR HANDLING FOR BOT IMPORT
 try:
     from .main import bot
@@ -146,11 +148,11 @@ def paystack_webhook():
                             try:
                                 bot.send_message(
                                     tg_id,
-                                    f"✅ *Hub Activated!*\n\n"
-                                    f"Your *{program_name}* Hub is now live!\n"
+                                    f"✅ <b>Hub Activated!</b>\n\n"
+                                    f"Your <b>{escape_html(program_name)}</b> Hub is now live!\n"
                                     "You and your coursemates now have full access.\n\n"
                                     "Tap below to enter your Hub.",
-                                    parse_mode="Markdown",
+                                    parse_mode="HTML",
                                     reply_markup=kb
                                 )
                             except Exception as notify_err:
@@ -169,10 +171,10 @@ def paystack_webhook():
                         try:
                             bot.send_message(
                                 user_id,
-                                f"✅ *Access Granted!*\n\n"
-                                f"Your payment to unlock **{target_name}** has been verified.\n"
+                                f"✅ <b>Access Granted!</b>\n\n"
+                                f"Your payment to unlock <b>{escape_html(target_name)}</b> has been verified.\n"
                                 "You can now access these resources in your Academic Vault.",
-                                parse_mode="Markdown",
+                                parse_mode="HTML",
                                 reply_markup=kb
                             )
                         except Exception as notify_err:
@@ -216,20 +218,23 @@ def paystack_webhook():
                 if tg_id:
                     try:
                         if event == "charge.failure":
-                            msg = (
-                                "❌ *Payment Failed*\n\n"
-                                f"Your payment{' for *' + program_name + '*' if program_name else ''} "
+                            bot.send_message(
+                                tg_id,
+                                f"❌ <b>Payment Failed</b>\n\n"
+                                f"Your payment{' for <b>' + escape_html(program_name) + '</b>' if program_name else ''} "
                                 "could not be processed.\n\n"
-                                "Please try again. If the problem persists, contact your bank or reach out to support."
+                                "Please try again. If the problem persists, contact your bank or reach out to support.",
+                                parse_mode="HTML"
                             )
                         else:  # charge.abandon
-                            msg = (
-                                "⚠️ *Payment Not Completed*\n\n"
-                                f"Your Hub activation payment{' for *' + program_name + '*' if program_name else ''} "
-                                "was not completed."
-                                "\n\nYour slot is still reserved. You can activate anytime by using /start → Activate Hub."
+                            bot.send_message(
+                                tg_id,
+                                f"⚠️ <b>Payment Not Completed</b>\n\n"
+                                f"Your Hub activation payment{' for <b>' + escape_html(program_name) + '</b>' if program_name else ''} "
+                                "was not completed.\n\n"
+                                "Your slot is still reserved. You can activate anytime by using /start → Activate Hub.",
+                                parse_mode="HTML"
                             )
-                        bot.send_message(tg_id, msg, parse_mode="Markdown")
                     except Exception as notify_err:
                         logger.warning(f"Could not send failure notice to {tg_id}: {notify_err}")
 

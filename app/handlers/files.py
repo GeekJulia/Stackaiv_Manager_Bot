@@ -1,7 +1,7 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import threading
 import re
-from ..utils.messages import safe_edit_or_send, send_loading_message, escape_markdown, safe_edit_or_send as edit_message_safe
+from ..utils.messages import safe_edit_or_send, send_loading_message, escape_markdown, safe_edit_or_send as edit_message_safe, escape_html
 from ..utils.keyboards import build_course_keyboard, build_resource_type_keyboard
 from ..database.queries import (
     get_user_program_id,
@@ -440,15 +440,15 @@ def files_handler(bot):
         
         queue = file_batch_queues[user_id]
         
-        # Build file list text - use plain Markdown (not V2) for simplicity
-        file_list = " *Files queued for upload:*\n\n"
+        # Build file list text - use HTML for absolute safety with filenames
+        file_list = " <b>Files queued for upload:</b>\n\n"
         for i, f in enumerate(queue, 1):
             course = get_course_info(f['course_id'])
-            # Don't use backticks for filenames with special chars in Markdown
-            # Just show them plain to avoid parsing issues
-            file_list += f"{i}. {f['file_name']}\n   → {course['course_code']}\n"
+            fname = escape_html(f['file_name'])
+            ccode = escape_html(course['course_code'])
+            file_list += f"{i}. <code>{fname}</code>\n   → {ccode}\n"
         
-        file_list += f"\n *{len(queue)} file(s) ready*\n\n"
+        file_list += f"\n <b>{len(queue)} file(s) ready</b>\n\n"
         file_list += "Review files above. Confirm to upload all."
         
         # Build keyboard
@@ -458,12 +458,12 @@ def files_handler(bot):
             InlineKeyboardButton(" Cancel", callback_data="fbatch:cancel")
         )
         
-        # Send batch prompt with regular Markdown and error handling
+        # Send batch prompt with HTML and error handling
         try:
             msg = bot.send_message(
                 chat_id,
                 file_list,
-                parse_mode="Markdown",
+                parse_mode="HTML",
                 reply_markup=kb
             )
             
@@ -483,7 +483,7 @@ def files_handler(bot):
             try:
                 msg = bot.send_message(
                     chat_id,
-                    file_list.replace("*", ""),
+                    file_list,
                     reply_markup=kb
                 )
                 

@@ -15,15 +15,13 @@ from ..database.queries import (
     save_admin_message,
     link_user_to_program,
     save_courses,
-    promote_program,
-    check_archive_access,
-    get_past_levels,
-    get_courses_by_level_and_semester
+    get_courses_by_level_and_semester,
+    get_users_by_program_id
 )
 from .notes import get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
-from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
+from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe, escape_html
 from ..services.payments import initialize_transaction, generate_payment_reference
 
 user_sessions = TTLDict()
@@ -735,37 +733,66 @@ def start_handler(bot):
         kb.add(InlineKeyboardButton(' ⚠️ Yes, Promote Hub', callback_data='promote:confirm'))
         kb.add(InlineKeyboardButton(' Cancel', callback_data='hub:enter_own'))
         
+        warning_text = (
+            "<b>📊 PROMOTE HUB LEVEL</b>\n\n"
+            "This will advance your cohort's academic level (e.g., 100L → 200L).\n\n"
+            "⚠️ <b>CRITICAL CONSEQUENCES:</b>\n"
+            "• All current courses will be <b>FROZEN</b> and moved to archives.\n"
+            "• Students will need to <b>PAY</b> (₦3,000) to access these archives later.\n"
+            "• This action <b>CANNOT BE UNDONE</b>.\n\n"
+            "🛡 <b>TRANSPARENCY NOTICE:</b>\n"
+            "To prevent unauthorized changes, confirming this promotion will <b>BROADCAST your Name and Telegram ID</b> to everyone in this cohort."
+        )
+        
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=' *Promote Hub Level*\n\nThis will advance your cohort\'s academic level (e.g., 100L → 200L).\n\n'
-                 ' *Note:* All current courses will be frozen and moved to the Archives. Current students will need to pay to access them later.\n\n'
-                 'Are you sure you want to proceed?',
+            text=warning_text,
             reply_markup=kb,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
     @bot.callback_query_handler(func=lambda call: call.data == 'promote:confirm')
     def hub_promote_execution(call):
         user_id = call.from_user.id
-        # get_active_program_id is imported from .notes
         program_id = get_active_program_id(user_id)
         
-        loading_id = send_loading_message(bot, call.message.chat.id, ' *Advancing Cohort Level...*')
+        loading_id = send_loading_message(bot, call.message.chat.id, ' <b>Advancing Cohort Level...</b>')
         
-        # promote_program is imported from queries
+        # Capture initiator details for the broadcast
+        initiator = call.from_user
+        initiator_name = f"{initiator.first_name} {initiator.last_name or ''}".strip()
+        initiator_info = f"<b>{escape_html(initiator_name)}</b> (@{escape_html(initiator.username)})" if initiator.username else f"<b>{escape_html(initiator_name)}</b>"
+        
         new_level = safe_db_operation(promote_program, None, program_id)
         
         if new_level:
+            # Broadcast to all cohort members
+            notify_users = safe_db_operation(get_users_by_program_id, [], program_id)
+            broadcast_msg = (
+                "📣 <b>HUB LEVEL PROMOTED</b>\n\n"
+                f"Your Hub has been advanced to <b>{escape_html(new_level)}</b>.\n\n"
+                f"👤 <b>Triggered By:</b> {initiator_info}\n"
+                f"🆔 <b>User ID:</b> <code>{initiator.id}</code>\n\n"
+                "Previous courses are now available in the <b>Past Level Archives</b>."
+            )
+            
+            for tg_id in notify_users:
+                if tg_id == call.message.chat.id: continue
+                try:
+                    bot.send_message(tg_id, broadcast_msg, parse_mode="HTML")
+                except Exception:
+                    pass
+
             edit_message_safe(
                 bot, call.message.chat.id, loading_id,
-                f' 🚀 *Promotion Successful!*\n\nYour hub has been advanced to **{new_level}**.\n\n'
-                'All previous level courses have been archived.',
-                parse_mode='Markdown',
+                f" 🚀 <b>Promotion Successful!</b>\n\nYour hub has been advanced to <b>{escape_html(new_level)}</b>.\n\n"
+                "A notification has been sent to all cohort members.",
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(' Back to Hub', callback_data='hub:enter_own'))
             )
         else:
-            edit_message_safe(bot, call.message.chat.id, loading_id, ' Error: Promotion failed.')
+            edit_message_safe(bot, call.message.chat.id, loading_id, ' ❌ <b>Error:</b> Promotion failed. Please try again later.', parse_mode="HTML")
 
     @bot.callback_query_handler(func=lambda call: call.data == 'hub:archives')
     def hub_archives_root(call):
@@ -790,9 +817,9 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=' *🗄 Academic Vault (Archives)*\n\nSelect a past level to browse:',
+            text=' <b>🗄 Academic Vault (Archives)</b>\n\nSelect a past level to browse:',
             reply_markup=kb,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:lvl:'))
@@ -808,9 +835,9 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f' *{level} Archives*\n\nSelect the semester:',
+            text=f' <b>{escape_html(level)} Archives</b>\n\nSelect the semester:',
             reply_markup=kb,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:sem:'))
@@ -835,9 +862,9 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f' *{level} {semester} Courses*\n\nSelect a course to access resources:',
+            text=f' <b>{escape_html(level)} {escape_html(semester)} Courses</b>\n\nSelect a course to access resources:',
             reply_markup=kb,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:get:'))

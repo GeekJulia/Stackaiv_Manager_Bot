@@ -1108,3 +1108,25 @@ def get_courses_by_level_and_semester(program_id, level, semester):
                 ORDER BY course_code
             """, (program_id, level, semester))
             return [{"id": r[0], "course_code": r[1]} for r in cursor.fetchall()]
+
+def get_program_creator(program_id):
+    """Get the telegram_id and name of the program creator"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT u.telegram_id, u.first_name, u.username
+                FROM users u
+                JOIN programs p ON p.created_by = u.id
+                WHERE p.id = %s
+            """, (program_id,))
+            r = cursor.fetchone()
+            if r:
+                return {"telegram_id": r[0], "first_name": r[1], "username": r[2]}
+            return None
+
+def get_users_by_program_id(program_id):
+    """Get a list of all telegram_ids linked to a specific program"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT telegram_id FROM users WHERE program_id = %s", (program_id,))
+            return [r[0] for r in cursor.fetchall() if r[0]]

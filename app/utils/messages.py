@@ -63,3 +63,13 @@ def escape_markdown(text):
     text = str(text)
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+
+def escape_html(text):
+    """
+    Escape special characters for Telegram HTML format.
+    Characters that need escaping: < > &
+    """
+    import html
+    if text is None:
+        return "N/A"
+    return html.escape(str(text))
