@@ -506,7 +506,7 @@ def admin_handler(bot):
             page_items, page, total_pages = paginate_items(call.data, messages, 5)
 
             text = f" *User Messages* (Page {page + 1}/{total_pages})\n\n"
-            text += f"Total: {total} |  Unhandled: {unhandled_count}\n\n"
+            text += f"Total: {total_pages} |  Unhandled: {unhandled_count}\n\n"
 
             for msg in page_items:
                 status = " NEW" if not msg['handled'] else " Handled"

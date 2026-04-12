@@ -16,7 +16,10 @@ from ..database.queries import (
     link_user_to_program,
     save_courses,
     get_courses_by_level_and_semester,
-    get_users_by_program_id
+    get_users_by_program_id,
+    promote_program,
+    get_past_levels,
+    check_archive_access
 )
 from .notes import get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
@@ -136,7 +139,7 @@ def start_handler(bot):
                 " Welcome to Stackaiv!\n\n"
                 "To get started, please reply with your details in this exact format:\n\n"
                 "**Name | Program | Level | Grad Year | College | Career**\n\n"
-                "_Example: `Julia | Computer Science | 400 | 2025 | CST | Developer`_"
+                "_Example: `Julia | Computer Science | 400 | 2026 | CST | Developer`_"
             )
             
             user_sessions[telegram_id] = {"stage": "awaiting_registration"}
@@ -187,7 +190,7 @@ def start_handler(bot):
             bot.send_message(
                 message.chat.id, 
                 " Invalid format. Please make sure to include all 6 details separated by `|`.\n\n"
-                "_Example: `Julia | Computer Science | 400 | 2025 | CST | Developer`_",
+                "_Example: `Julia | Computer Science | 400 | 2065 | CST | Developer`_",
                 parse_mode="Markdown"
             )
             return
