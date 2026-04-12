@@ -360,7 +360,7 @@ def check_program_exists(college, program_name, graduation_year):
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT id, level, college, name, created_by, graduation_year
+                SELECT id, level, college, name, created_by, graduation_year, is_active
                 FROM programs
                 WHERE LOWER(college) = LOWER(%s) 
                   AND LOWER(name) = LOWER(%s)
@@ -375,7 +375,8 @@ def check_program_exists(college, program_name, graduation_year):
                     "college": r[2],
                     "program_name": r[3],
                     "user_id": r[4],
-                    "graduation_year": r[5]
+                    "graduation_year": r[5],
+                    "is_active": r[6]
                 }
             return None
 
@@ -612,18 +613,28 @@ def get_payment_by_reference(reference):
         with pool.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT id, program_id, reference, amount, status
+                    SELECT id, program_id, reference, amount, status, payment_type, metadata
                     FROM payments
                     WHERE reference = %s
                 """, (reference,))
                 r = cursor.fetchone()
                 if r:
+                    import json
+                    raw_meta = r[6]
+                    meta = {}
+                    if raw_meta:
+                        try:
+                            meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+                        except Exception:
+                            pass
                     result = {
                         "id": r[0],
                         "program_id": r[1],
                         "reference": r[2],
                         "amount": r[3],
-                        "status": r[4]
+                        "status": r[4],
+                        "payment_type": r[5],
+                        "metadata": meta,
                     }
                     print(f"DEBUG: Payment found - {result}")
                     return result
@@ -633,7 +644,6 @@ def get_payment_by_reference(reference):
     except Exception as e:
         print(f"ERROR: get_payment_by_reference failed - {str(e)}")
         raise
-        return None
 
 def activate_program(program_id, is_paid=True):
     """Mark program as active and create activation record
@@ -659,6 +669,27 @@ def activate_program(program_id, is_paid=True):
             
             conn.commit()
             return True
+
+
+def get_users_by_program_id(program_id):
+    """Get all telegram_ids of users currently linked to a program.
+    
+    Used by the webhook to broadcast messages to everyone who should be
+    notified when a hub is activated or when a payment event occurs.
+    """
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT telegram_id
+                    FROM users
+                    WHERE program_id = %s
+                      AND telegram_id IS NOT NULL
+                """, (program_id,))
+                return [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"ERROR: get_users_by_program_id failed - {str(e)}")
+        return []
 
 def get_program_activation_status(program_id):
     """Check if a program is active"""

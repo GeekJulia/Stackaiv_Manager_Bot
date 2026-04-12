@@ -246,27 +246,64 @@ def start_handler(bot):
             )
 
             if existing_program:
-                # Program exists. Auto join them to it
                 program_id = existing_program['id']
+                is_active = existing_program.get('is_active', False)
+
+                # Always link the user so they appear in notify_users on activation
                 safe_db_operation(link_user_to_program, False, telegram_id, program_id)
-                
-                user_sessions[telegram_id] = {
-                    "program_id": program_id,
-                    "stage": "authenticated"
-                }
 
-                kb = InlineKeyboardMarkup(row_width=2)
-                kb.add(InlineKeyboardButton(" Proceed to Hub", callback_data="hub:enter_own"))
-                kb.add(InlineKeyboardButton(" Contact Help Center", callback_data="action:contact_admin"))
+                if is_active:
+                    # Hub is live — route straight in
+                    user_sessions[telegram_id] = {
+                        "program_id": program_id,
+                        "stage": "authenticated"
+                    }
 
-                edit_message_safe(
-                    bot,
-                    call.message.chat.id,
-                    loading_msg_id,
-                    " Welcome! Your program hub has already been created.",
-                    reply_markup=kb,
-                    parse_mode="Markdown"
-                )
+                    kb = InlineKeyboardMarkup(row_width=2)
+                    kb.add(InlineKeyboardButton(" Proceed to Hub", callback_data="hub:enter_own"))
+                    kb.add(InlineKeyboardButton(" Contact Help Center", callback_data="action:contact_admin"))
+
+                    edit_message_safe(
+                        bot,
+                        call.message.chat.id,
+                        loading_msg_id,
+                        " Welcome! Your program hub has already been created.",
+                        reply_markup=kb,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    # Hub exists but hasn't been paid for yet.
+                    # User is now linked — they'll be automatically notified whenever
+                    # anyone (including themselves) completes the activation payment.
+                    user_sessions[telegram_id] = {
+                        "program_id": program_id,
+                        "stage": "authenticated"
+                    }
+                    user_sessions[telegram_id]['pending_program'] = {
+                        "level": existing_program['level'],
+                        "college": existing_program['college'],
+                        "program_name": existing_program['program_name'],
+                        "grad_year": str(existing_program['graduation_year']),
+                        "saved_user_id": saved_user_id
+                    }
+
+                    kb = InlineKeyboardMarkup()
+                    kb.add(InlineKeyboardButton(" 💳 Activate Hub (\u20a63,000)", callback_data="action:activate_hub"))
+
+                    edit_message_safe(
+                        bot,
+                        call.message.chat.id,
+                        loading_msg_id,
+                        (
+                            " ⚠️ *Hub Not Yet Active*\n\n"
+                            f"A hub for *{existing_program['program_name']}* exists but hasn't been activated yet.\n\n"
+                            "You've been added to the waitlist — you'll receive an automatic notification "
+                            "the moment anyone activates this hub.\n\n"
+                            "You can also activate it yourself now:"
+                        ),
+                        reply_markup=kb,
+                        parse_mode="Markdown"
+                    )
             else:
                 # Program doesn't exist. Prepare activation.
                 user_sessions[telegram_id]['pending_program'] = {
@@ -337,9 +374,13 @@ def start_handler(bot):
             else:
                 program_id = program_id['id']
 
+            # Link the initiating user immediately so they appear in notify_users
+            # when the webhook fires, regardless of whether they are the original
+            # creator or a second user who chose to pay for someone else's pending hub.
+            safe_db_operation(link_user_to_program, False, telegram_id, program_id)
+
             # Generate Payment Link (₦3,000)
             ref = generate_payment_reference(telegram_id, program_id, 'ACT')
-            # Assuming we use a placeholder email if not provided
             email = f"user_{telegram_id}@stackaiv.com"
             
             pay_data = safe_db_operation(
@@ -349,7 +390,8 @@ def start_handler(bot):
                 amount=3000,
                 reference=ref,
                 payment_type='hub_activation',
-                program_id=program_id
+                program_id=program_id,
+                telegram_id=telegram_id
             )
 
             if pay_data and pay_data.get('status'):

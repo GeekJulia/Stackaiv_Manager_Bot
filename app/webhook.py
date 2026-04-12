@@ -32,8 +32,9 @@ except Exception as e:
     bot = None  # Set to None so we can check later
 
 from .services.payments import handle_payment_webhook
-from .database.queries import get_user_program_id
+from .database.queries import get_user_program_id, get_payment_by_reference, get_program_info
 from .database.clients import pool
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
@@ -72,6 +73,24 @@ def verify_paystack_webhook(request_data, signature):
     except Exception as e:
         logger.error(f"Webhook verification error: {str(e)}")
         return False
+
+
+def extract_user_id_from_reference(reference):
+    """Parse telegram user_id out of a payment reference string.
+    
+    Reference format: STK_{type}_U{user_id}[_P{program_id}]_{ts}_{rand}
+    Walks each underscore-separated part and returns the first one that
+    starts with 'U' and has a purely numeric suffix.
+    """
+    if not reference:
+        return None
+    try:
+        for part in reference.split('_'):
+            if part.startswith('U') and part[1:].isdigit():
+                return int(part[1:])
+    except Exception:
+        pass
+    return None
 
 # -------------------------
 # PAYSTACK WEBHOOK ENDPOINT
@@ -115,8 +134,30 @@ def paystack_webhook():
             if fulfillment.get("status"):
                 ftype = fulfillment.get("type")
                 if ftype == "hub_activation":
-                    logger.info(f"Program {fulfillment['program_id']} activated successfully")
+                    program_id   = fulfillment['program_id']
+                    program_name = fulfillment.get('program_name', 'Your Program')
+                    notify_users = fulfillment.get('notify_users', [])
+                    logger.info(f"Program {program_id} activated. Notifying {len(notify_users)} user(s).")
+
+                    if bot:
+                        kb = InlineKeyboardMarkup()
+                        kb.add(InlineKeyboardButton("Enter Hub →", callback_data="hub:enter_own"))
+                        for tg_id in notify_users:
+                            try:
+                                bot.send_message(
+                                    tg_id,
+                                    f"✅ *Hub Activated!*\n\n"
+                                    f"Your *{program_name}* Hub is now live!\n"
+                                    "You and your coursemates now have full access.\n\n"
+                                    "Tap below to enter your Hub.",
+                                    parse_mode="Markdown",
+                                    reply_markup=kb
+                                )
+                            except Exception as notify_err:
+                                logger.warning(f"Could not notify user {tg_id}: {notify_err}")
+
                     return jsonify({"status": "success", "message": "Hub activated"}), 200
+
                 elif ftype == "archive_access":
                     logger.info(f"Archive access granted for User {fulfillment['user_id']}")
                     return jsonify({"status": "success", "message": "Archive access granted"}), 200
@@ -126,9 +167,54 @@ def paystack_webhook():
                 logger.error(f"Payment verification failed: {fulfillment.get('error')}")
                 return jsonify({"status": "error", "message": fulfillment.get("error")}), 400
         
-        # Other events (failures, abandonments) can be logged but not processed
+        # Notify user on failed or abandoned payments
         elif event in ["charge.failure", "charge.abandon"]:
-            logger.info(f"Payment {event}: {data}")
+            reference = data.get("data", {}).get("reference", "")
+            logger.info(f"Payment {event} for reference={reference}")
+
+            if bot and reference:
+                # Attempt to identify who initiated this payment
+                tg_id = None
+                program_name = None
+                try:
+                    payment_record = get_payment_by_reference(reference)
+                    if payment_record:
+                        # Try metadata first (most reliable)
+                        tg_id = payment_record.get('metadata', {}).get('user_id')
+                        # Fallback: parse from reference string
+                        if not tg_id:
+                            tg_id = extract_user_id_from_reference(reference)
+                        # Get program name for a helpful message
+                        prog_id = payment_record.get('program_id')
+                        if prog_id:
+                            prog = get_program_info(prog_id)
+                            program_name = prog['program_name'] if prog else None
+                    else:
+                        tg_id = extract_user_id_from_reference(reference)
+                except Exception as lookup_err:
+                    logger.warning(f"Could not look up payment for failure notify: {lookup_err}")
+                    tg_id = extract_user_id_from_reference(reference)
+
+                if tg_id:
+                    try:
+                        if event == "charge.failure":
+                            msg = (
+                                "❌ *Payment Failed*\n\n"
+                                f"Your payment{' for *' + program_name + '*' if program_name else ''} "
+                                "could not be processed.\n\n"
+                                "Please try again. If the problem persists, contact your bank or reach out to support."
+                            )
+                        else:  # charge.abandon
+                            msg = (
+                                "⚠️ *Payment Not Completed*\n\n"
+                                f"Your Hub activation payment{' for *' + program_name + '*' if program_name else ''} "
+                                "was not completed."
+                                "\n\nYour slot is still reserved. You can activate anytime by using /start → Activate Hub."
+                            )
+                        bot.send_message(tg_id, msg, parse_mode="Markdown")
+                    except Exception as notify_err:
+                        logger.warning(f"Could not send failure notice to {tg_id}: {notify_err}")
+
             return jsonify({"status": "info", "message": f"Event {event} logged"}), 200
         
         else:

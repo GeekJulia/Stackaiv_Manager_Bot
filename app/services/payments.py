@@ -6,7 +6,9 @@ from ..database.queries import (
     save_payment, 
     get_payment_by_reference, 
     activate_program,
-    save_archive_subscription
+    save_archive_subscription,
+    get_users_by_program_id,
+    get_program_info
 )
 
 # Load .env from project root
@@ -20,7 +22,7 @@ PAYSTACK_BASE_URL = "https://api.paystack.co"
 # PAYSTACK API FUNCTIONS
 # -------------------------
 
-def initialize_transaction(email, amount, reference, payment_type='hub_activation', program_id=None, target_id=None, target_level=None):
+def initialize_transaction(email, amount, reference, payment_type='hub_activation', program_id=None, target_id=None, target_level=None, telegram_id=None):
     """
     Initialize a Paystack transaction with dynamic metadata for fulfillment.
     
@@ -32,6 +34,7 @@ def initialize_transaction(email, amount, reference, payment_type='hub_activatio
         program_id: Associated program (optional for archive)
         target_id: course_id if type is course archive
         target_level: level string if type is level archive
+        telegram_id: Telegram user ID of the paying user (stored in metadata for failure notifications)
     """
     secret_key = os.getenv("PAYSTACK_SECRET_KEY")
     
@@ -44,12 +47,14 @@ def initialize_transaction(email, amount, reference, payment_type='hub_activatio
         "Content-Type": "application/json",
     }
     
-    # Bundle metadata for the webhook
+    # Bundle metadata for the webhook — include telegram_id so we can notify on
+    # failure/success even if Paystack strips all other metadata from a response
     metadata = {
         "payment_type": payment_type,
         "program_id": program_id,
         "target_id": target_id,
-        "target_level": target_level
+        "target_level": target_level,
+        "user_id": telegram_id,
     }
     
     payload = {
@@ -122,7 +127,19 @@ def handle_payment_webhook(data):
             # Activate Program Hub (₦3000)
             target_prog_id = program_id or payment.get('program_id')
             activate_program(target_prog_id)
-            return {"status": True, "type": "hub_activation", "program_id": target_prog_id}
+
+            # Collect all linked users so webhook.py can notify them
+            notify_users = get_users_by_program_id(target_prog_id)
+            program = get_program_info(target_prog_id)
+            program_name = program['program_name'] if program else "Your Program"
+
+            return {
+                "status": True,
+                "type": "hub_activation",
+                "program_id": target_prog_id,
+                "notify_users": notify_users,
+                "program_name": program_name,
+            }
             
         elif payment_type == 'archive_access' or payment.get('payment_type') == 'archive_access':
             # Academic Vault Access (₦500 / ₦2500 / ₦10000)
