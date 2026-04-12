@@ -142,19 +142,27 @@ def handle_payment_webhook(data):
             }
             
         elif payment_type == 'archive_access' or payment.get('payment_type') == 'archive_access':
-            # Academic Vault Access (₦500 / ₦2500 / ₦10000)
-            user_id = payment.get('metadata', {}).get('user_id') # We should ensure user_id is in metadata
+            # Academic Vault Access (₦500 / ₦3000 / ₦10000)
+            user_id = metadata.get("user_id") or payment.get('metadata', {}).get('user_id')
+            
             # Fallback user_id extraction: usually part of the reference for us
-            # STACKAIV_U{user_id}_P{program_id}...
             try:
                 if not user_id:
-                    user_id = int(reference.split('_')[1][1:])
+                    user_id = int(reference.split('_')[2][1:]) # Updated to match STK_ARC_U123 format
             except: pass
 
             target_id = metadata.get('target_id')
             target_level = metadata.get('target_level')
-            access_type = 'course' if target_id else ('level' if target_level else 'full')
+            access_type = 'course' if target_id else ('level' if (target_level and target_level != 'FULL_VAULT') else 'full')
             
+            # Get a readable name for the success message
+            target_name = "Full Vault Access"
+            if access_type == 'course':
+                course = get_course_info(target_id)
+                target_name = course['course_code'] if course else f"Course ID {target_id}"
+            elif access_type == 'level':
+                target_name = target_level
+
             save_archive_subscription(
                 user_id=user_id,
                 access_type=access_type,
@@ -162,7 +170,12 @@ def handle_payment_webhook(data):
                 target_level=target_level,
                 reference=reference
             )
-            return {"status": True, "type": "archive_access", "user_id": user_id}
+            return {
+                "status": True, 
+                "type": "archive_access", 
+                "user_id": user_id,
+                "target_name": target_name
+            }
 
         return {"status": False, "error": "Unknown payment type"}
         

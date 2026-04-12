@@ -159,7 +159,25 @@ def paystack_webhook():
                     return jsonify({"status": "success", "message": "Hub activated"}), 200
 
                 elif ftype == "archive_access":
-                    logger.info(f"Archive access granted for User {fulfillment['user_id']}")
+                    user_id = fulfillment.get("user_id")
+                    target_name = fulfillment.get("target_name", "your requested resources")
+                    logger.info(f"Archive access granted for User {user_id}: {target_name}")
+
+                    if bot and user_id:
+                        kb = InlineKeyboardMarkup()
+                        kb.add(InlineKeyboardButton("🗄 Go to Archives", callback_data="hub:archives"))
+                        try:
+                            bot.send_message(
+                                user_id,
+                                f"✅ *Access Granted!*\n\n"
+                                f"Your payment to unlock **{target_name}** has been verified.\n"
+                                "You can now access these resources in your Academic Vault.",
+                                parse_mode="Markdown",
+                                reply_markup=kb
+                            )
+                        except Exception as notify_err:
+                            logger.warning(f"Could not notify user {user_id} of archive success: {notify_err}")
+
                     return jsonify({"status": "success", "message": "Archive access granted"}), 200
                 else:
                     return jsonify({"status": "success", "message": "Payment processed"}), 200

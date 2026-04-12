@@ -732,15 +732,20 @@ def start_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == 'hub:promote')
     def hub_promote_prompt(call):
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton(' ⚠️ Yes, Promote Hub', callback_data='promote:confirm'))
+        kb.add(InlineKeyboardButton(' ⚠️ YES, PROMOTE HUB', callback_data='promote:confirm'))
         kb.add(InlineKeyboardButton(' Cancel', callback_data='hub:enter_own'))
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=' *Promote Hub Level*\n\nThis will advance your cohort\'s academic level (e.g., 100L → 200L).\n\n'
-                 ' *Note:* All current courses will be frozen and moved to the Archives. Current students will need to pay to access them later.\n\n'
-                 'Are you sure you want to proceed?',
+            text=' 🚨 **CRITICAL: HUB LEVEL PROMOTION**\n\n'
+                 'This action will advance your entire cohort\'s academic level (e.g., **100L → 200L**).\n\n'
+                 '⚠️ **IMPORTANT CONSEQUENCES:**\n'
+                 '• **Current courses will be FROZEN** and moved to Archives.\n'
+                 '• **Archive Access fees** will apply to anyone wanting to view these courses later.\n\n'
+                 '⚠️ **TRANSPARENCY WARNING:**\n'
+                 '**To prevent unauthorized or accidental promotion, your Name and Telegram ID will be BROADCAST to every member of this program once you confirm.**\n\n'
+                 '**Are you sure you want to proceed?**',
             reply_markup=kb,
             parse_mode='Markdown'
         )
@@ -748,7 +753,9 @@ def start_handler(bot):
     @bot.callback_query_handler(func=lambda call: call.data == 'promote:confirm')
     def hub_promote_execution(call):
         user_id = call.from_user.id
-        # get_active_program_id is imported from .notes
+        first_name = call.from_user.first_name
+        username = f" (@{call.from_user.username})" if call.from_user.username else ""
+        
         program_id = get_active_program_id(user_id)
         
         loading_id = send_loading_message(bot, call.message.chat.id, ' *Advancing Cohort Level...*')
@@ -757,15 +764,36 @@ def start_handler(bot):
         new_level = safe_db_operation(promote_program, None, program_id)
         
         if new_level:
+            # BROADCAST TO ALL MEMBERS
+            notify_users = safe_db_operation(get_users_by_program_id, [], program_id)
+            
+            broadcast_msg = (
+                f"📣 **HUB LEVEL PROMOTED**\n\n"
+                f"Your Hub has been advanced to **{new_level}**.\n\n"
+                f"**Triggered By:** {first_name}{username}\n"
+                f"**User ID:** `{user_id}`\n\n"
+                f"Previous courses are now available in the **Past Level Archives**."
+            )
+            
+            kb_hub = InlineKeyboardMarkup().add(InlineKeyboardButton(' Enter Hub →', callback_data='hub:enter_own'))
+            
+            for tg_id in notify_users:
+                try:
+                    # Don't send broadcast to the person who did it (they get a special success message)
+                    if tg_id == user_id: continue
+                    bot.send_message(tg_id, broadcast_msg, parse_mode='Markdown', reply_markup=kb_hub)
+                except: pass
+
             edit_message_safe(
                 bot, call.message.chat.id, loading_id,
-                f' 🚀 *Promotion Successful!*\n\nYour hub has been advanced to **{new_level}**.\n\n'
-                'All previous level courses have been archived.',
+                f' 🚀 **PROMOTION SUCCESSFUL**\n\n'
+                f'The Hub has been advanced to **{new_level}**.\n'
+                f'A notification has been sent to all program members identifying you as the initiator.',
                 parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(' Back to Hub', callback_data='hub:enter_own'))
+                reply_markup=kb_hub
             )
         else:
-            edit_message_safe(bot, call.message.chat.id, loading_id, ' Error: Promotion failed.')
+            edit_message_safe(bot, call.message.chat.id, loading_id, ' ❌ **Error:** Promotion failed.')
 
     @bot.callback_query_handler(func=lambda call: call.data == 'hub:archives')
     def hub_archives_root(call):
@@ -873,9 +901,9 @@ def start_handler(bot):
             ref_course = generate_payment_reference(user_id, None, 'ARC_C')
             pay_course = safe_db_operation(initialize_transaction, None, email, 500, ref_course, 'archive_access', None, course_id, None)
             
-            # Level Access (₦2,500)
+            # Level Access (₦3,000)
             ref_level = generate_payment_reference(user_id, None, 'ARC_L')
-            pay_level = safe_db_operation(initialize_transaction, None, email, 2500, ref_level, 'archive_access', None, None, level)
+            pay_level = safe_db_operation(initialize_transaction, None, email, 3000, ref_level, 'archive_access', None, None, level)
             
             # Full Vault Access (₦10,000)
             ref_full = generate_payment_reference(user_id, None, 'ARC_F')
@@ -885,7 +913,7 @@ def start_handler(bot):
             if pay_course and pay_course.get('status'):
                 kb.add(InlineKeyboardButton(f' Unlock This Course (₦500)', url=pay_course['authorization_url']))
             if pay_level and pay_level.get('status'):
-                kb.add(InlineKeyboardButton(f' Unlock All {level} (₦2,500)', url=pay_level['authorization_url']))
+                kb.add(InlineKeyboardButton(f' Unlock All {level} (₦3,000)', url=pay_level['authorization_url']))
             if pay_full and pay_full.get('status'):
                 kb.add(InlineKeyboardButton(f' Full Archive Bypass (₦10,000)', url=pay_full['authorization_url']))
             
