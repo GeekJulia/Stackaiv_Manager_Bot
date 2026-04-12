@@ -683,119 +683,6 @@ def start_handler(bot):
                 " Failed to send message. Please try again later.",
                 parse_mode="Markdown"
             )
-    # -------------------------
-    # Hub Promotion & Archives
-    # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == 'hub:promote')
-    def hub_promote_prompt(call):
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton(' ⚠️ Yes, Promote Hub', callback_data='promote:confirm'))
-        kb.add(InlineKeyboardButton(' Cancel', callback_data='hub:enter_own'))
-        
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=' *Promote Hub Level*\n\nThis will advance your cohort\'s academic level (e.g., 100L → 200L).\n\n'
-                 ' *Note:* All current courses will be frozen and moved to the Archives. Current students will need to pay to access them later.\n\n'
-                 'Are you sure you want to proceed?',
-            reply_markup=kb,
-            parse_mode='Markdown'
-        )
-
-    @bot.callback_query_handler(func=lambda call: call.data == 'promote:confirm')
-    def hub_promote_execution(call):
-        user_id = call.from_user.id
-        # get_active_program_id is imported from .notes
-        program_id = get_active_program_id(user_id)
-        
-        loading_id = send_loading_message(bot, call.message.chat.id, ' *Advancing Cohort Level...*')
-        
-        # promote_program is imported from queries
-        new_level = safe_db_operation(promote_program, None, program_id)
-        
-        if new_level:
-            edit_message_safe(
-                bot, call.message.chat.id, loading_id,
-                f' 🚀 *Promotion Successful!*\n\nYour hub has been advanced to **{new_level}**.\n\n'
-                'All previous level courses have been archived.',
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(' Back to Hub', callback_data='hub:enter_own'))
-            )
-        else:
-            edit_message_safe(bot, call.message.chat.id, loading_id, ' Error: Promotion failed.')
-
-    @bot.callback_query_handler(func=lambda call: call.data == 'hub:archives')
-    def hub_archives_root(call):
-        user_id = call.from_user.id
-        program_id = get_active_program_id(user_id)
-        program = safe_db_operation(get_program_info, None, program_id)
-        
-        if not program: return
-        
-        # get_past_levels is imported from queries
-        past_levels = safe_db_operation(get_past_levels, [], program_id, program['level'])
-        
-        if not past_levels:
-            bot.answer_callback_query(call.id, 'No past levels found in archives.', show_alert=True)
-            return
-
-        kb = InlineKeyboardMarkup(row_width=2)
-        for lvl in past_levels:
-            kb.add(InlineKeyboardButton(f' {lvl}', callback_data=f'archive:lvl:{lvl}'))
-        kb.add(InlineKeyboardButton(' Back', callback_data='hub:enter_own'))
-
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=' *🗄 Academic Vault (Archives)*\n\nSelect a past level to browse:',
-            reply_markup=kb,
-            parse_mode='Markdown'
-        )
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:lvl:'))
-    def archive_level_selected(call):
-        level = call.data.split(':')[2]
-        kb = InlineKeyboardMarkup(row_width=2)
-        kb.add(
-            InlineKeyboardButton(' Alpha Semester', callback_data=f'archive:sem:{level}:Alpha'),
-            InlineKeyboardButton(' Omega Semester', callback_data=f'archive:sem:{level}:Omega')
-        )
-        kb.add(InlineKeyboardButton(' Back', callback_data='hub:archives'))
-
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f' *{level} Archives*\n\nSelect the semester:',
-            reply_markup=kb,
-            parse_mode='Markdown'
-        )
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith('archive:sem:'))
-    def archive_semester_selected(call):
-        parts = call.data.split(':')
-        level = parts[2]
-        semester = parts[3]
-        program_id = get_active_program_id(call.from_user.id)
-        
-        # get_courses_by_level_and_semester is imported from queries
-        courses = safe_db_operation(get_courses_by_level_and_semester, [], program_id, level, semester)
-        
-        if not courses:
-            bot.answer_callback_query(call.id, f'No courses found for {level} {semester}.', show_alert=True)
-            return
-
-        kb = InlineKeyboardMarkup(row_width=2)
-        for c in courses:
-            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f'archive:get:{level}:{c["id"]}'))
-        kb.add(InlineKeyboardButton(' Back', callback_data=f'archive:lvl:{level}'))
-
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f' *{level} {semester} Courses*\n\nSelect a course to access resources:',
-            reply_markup=kb,
-            parse_mode='Markdown'
-        )
 
     # -------------------------
     # Hub Promotion & Archives
@@ -928,7 +815,13 @@ def start_handler(bot):
             
             # Show standard get resource flow
             from .files import show_resource_types_for_get
-            show_resource_types_for_get(bot, call.message.chat.id, course_id, message_id=call.message.message_id)
+            show_resource_types_for_get(
+                bot,
+                call.message.chat.id,
+                course_id,
+                message_id=call.message.message_id,
+                user_id=user_id
+            )
         else:
             # Generate payment options
             loading_id = send_loading_message(bot, call.message.chat.id, " *Initializing vault access...*")

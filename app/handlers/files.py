@@ -29,6 +29,51 @@ file_batch_timers = TTLDict(cleanup_interval_seconds=600)
 file_batch_messages = TTLDict(cleanup_interval_seconds=600)
 
 
+# -------------------------
+# STANDALONE HELPER — called by start.py archive handler
+# -------------------------
+def show_resource_types_for_get(bot, chat_id, course_id, message_id=None, user_id=None):
+    """Show the resource-type selection keyboard for a given course.
+    
+    Used both by the normal hub flow (via get_resource_type callback) and
+    by the archive bypass path in start.py after access is confirmed.
+    Sets the 'select_slot' session so the slot-input handler works correctly.
+    """
+    from ..database.queries import get_resource_types, get_course_info
+    from ..utils.keyboards import build_resource_type_keyboard
+    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    resource_types = get_resource_types()
+    course = get_course_info(course_id)
+
+    if not course:
+        if message_id:
+            from ..utils.messages import safe_edit_or_send
+            safe_edit_or_send(bot, chat_id, message_id, " Course not found.", parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, " Course not found.")
+        return
+
+    # Set session so list_slots / send_resource handlers work
+    if user_id:
+        file_sessions[user_id] = {
+            "stage": "select_slot",
+            "course_id": course_id
+        }
+
+    kb = build_resource_type_keyboard(resource_types, callback_prefix="get:type")
+    kb.add(InlineKeyboardButton(" 📦 ALL RESOURCES", callback_data=f"get:all_resources:{course_id}"))
+
+    text = f" *Select resource type for {course['course_code']}:*"
+
+    from ..utils.messages import safe_edit_or_send
+    safe_edit_or_send(
+        bot, chat_id, message_id, text,
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+
+
 def files_handler(bot):
 
     # -------------------------
@@ -533,23 +578,40 @@ def files_handler(bot):
         resource_types = get_resource_types()
 
         # ARCHIVE GATE CHECK
-        # If accessing via archives, they have an archive_bypass in session
+        # Only block if we have solid data AND this is definitively a past-level course.
+        # If any data is missing/None we fall through and serve the resource types normally.
         from .start import user_sessions
         session = user_sessions.get(user_id, {})
         bypass_id = session.get('archive_bypass')
-        
+
         if bypass_id != course_id:
-            # Check if this course belongs to a past level
-            course = safe_db_operation(get_course_info, None, course_id)
-            program_id = get_active_program_id(user_id)
-            program = safe_db_operation(get_program_info, None, program_id)
-            
-            if course and program and course.get('academic_level') != program['level']:
-                # Historical Course - Check payment
-                has_access = safe_db_operation(check_archive_access, False, user_id=user_id, target_level=course['academic_level'], target_course_id=course_id)
+            # Fetch course + program to compare levels
+            course_check = safe_db_operation(get_course_info, None, course_id)
+            program_id_check = get_active_program_id(user_id)
+            program_check = safe_db_operation(get_program_info, None, program_id_check) if program_id_check else None
+
+            # Only gate when ALL three conditions are met:
+            #   1. We have a valid course record
+            #   2. We have a valid program record
+            #   3. The course's academic_level is explicitly set AND differs from program's current level
+            if (
+                course_check and program_check
+                and course_check.get('academic_level')
+                and program_check.get('level')
+                and course_check['academic_level'] != program_check['level']
+            ):
+                has_access = safe_db_operation(
+                    check_archive_access, False,
+                    user_id=user_id,
+                    target_level=course_check['academic_level'],
+                    target_course_id=course_id
+                )
                 if not has_access:
-                    bot.answer_callback_query(call.id, "🔒 Historical level access required.", show_alert=True)
-                    # Redirect to archives prompt (handled in start.py)
+                    bot.answer_callback_query(
+                        call.id,
+                        "🔒 This is an archived course. Use 'Past Level Archives' to unlock it.",
+                        show_alert=True
+                    )
                     return
 
         file_sessions[call.from_user.id] = {
