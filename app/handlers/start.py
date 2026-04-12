@@ -21,9 +21,8 @@ from ..database.queries import (
     get_past_levels,
     check_archive_access
 )
-from .notes import get_active_program_id
+from ..utils.sessions import TTLDict, get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
-from ..utils.sessions import TTLDict
 from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe, escape_html
 from ..services.payments import initialize_transaction, generate_payment_reference
 
@@ -138,8 +137,8 @@ def start_handler(bot):
             msg = (
                 " Welcome to Stackaiv!\n\n"
                 "To get started, please reply with your details in this exact format:\n\n"
-                "**Name | Program | Level | Grad Year | College | Career**\n\n"
-                "_Example: `Julia | Computer Science | 400 | 2026 | CST | Developer`_"
+                "**Name, Program, Level, Grad Year, College, Career**\n\n"
+                "_Example: `Julia, Computer Science, 400, 2026, CST, Developer`_"
             )
             
             user_sessions[telegram_id] = {"stage": "awaiting_registration"}
@@ -181,16 +180,16 @@ def start_handler(bot):
         text = message.text
 
         # Basic Check
-        if "|" not in text:
+        if "," not in text:
             # Ignore or reprompt
             return
 
-        parts = [p.strip() for p in text.split('|')]
+        parts = [p.strip() for p in text.split(',')]
         if len(parts) != 6:
             bot.send_message(
                 message.chat.id, 
-                " Invalid format. Please make sure to include all 6 details separated by `|`.\n\n"
-                "_Example: `Julia | Computer Science | 400 | 2065 | CST | Developer`_",
+                " Invalid format. Please make sure to include all 6 details separated by commas (`,`).\n\n"
+                "_Example: `Julia, Computer Science, 400, 2026, CST, Developer`_",
                 parse_mode="Markdown"
             )
             return
@@ -225,7 +224,7 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
             message_id=call.message.message_id, 
-            text="Registration cancelled. Please send your details again:\n\n**Name | Program | Level | Grad Year | College | Career**",
+            text="Registration cancelled. Please send your details again:\n\n**Name, Program, Level, Grad Year, College, Career**",
             parse_mode="Markdown"
         )
         user_sessions[call.from_user.id]['stage'] = "awaiting_registration"
@@ -455,10 +454,11 @@ def start_handler(bot):
             bot.send_message(message.chat.id, " Session expired. Please /start again.")
             return
 
-        courses = [c.strip() for c in text.split('|') if c.strip()]
+        # Support both comma and pipe for flexibility
+        courses = [c.strip().upper() for c in text.replace("|", ",").split(",") if c.strip()]
         
         if not courses:
-            bot.send_message(message.chat.id, " Invalid format. Try: MAT 101 | CSC 141")
+            bot.send_message(message.chat.id, " Invalid format. Try: MAT 101, CSC 141")
             return
             
         loading_msg_id = send_loading_message(bot, message.chat.id, " *Saving courses...*")
@@ -520,12 +520,31 @@ def start_handler(bot):
 
     @bot.callback_query_handler(func=lambda call: call.data == "action:goto_space")
     def goto_program_space(call):
+        user_id = call.from_user.id
+        # Check if user already has an active program (checks session first, then DB)
+        program_id = get_active_program_id(user_id)
+        
+        if program_id:
+            program = safe_db_operation(get_program_info, None, program_id)
+            if program:
+                # Update session to ensure it's still marked as authenticated
+                session = user_sessions.get(user_id, {})
+                session.update({
+                    "program_id": program_id,
+                    "stage": "authenticated"
+                })
+                user_sessions[user_id] = session
+                
+                show_program_hub_panel(bot, call.message.chat.id, program, message_id=call.message.message_id)
+                return
+
+        # If no program was found, only then prompt for ID
         bot.send_message(
             call.message.chat.id,
-            " Please enter the Program ID you want to join (Go to /whoami to see your program ID):",
+            " ⚠️ *Connection Required*\n\nPlease enter the **Program ID** you wish to join (or check /whoami for your ID):",
             parse_mode="Markdown"
         )
-        user_sessions[call.from_user.id] = {
+        user_sessions[user_id] = {
             "stage": "awaiting_program_id"
         }
 
