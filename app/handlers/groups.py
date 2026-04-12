@@ -478,22 +478,57 @@ def groups_handler(bot):
         session_key = f"{chat_id}_{call.message.message_id}"
         session = group_sessions.get(session_key)
         if not session:
-            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="Markdown")
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="HTML")
             schedule_delete(chat_id, call.message.message_id)
             return
         
-        program_id = batch_queues[chat_id][0]['program_id']
-        courses = get_courses_by_program(program_id)
-        
         kb = InlineKeyboardMarkup()
-        for c in courses:
-            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"batch_course:{c['id']}"))
+        kb.add(
+            InlineKeyboardButton("Alpha Semester", callback_data="batch:sem:Alpha"),
+            InlineKeyboardButton("Omega Semester", callback_data="batch:sem:Omega")
+        )
         kb.add(InlineKeyboardButton(" Back", callback_data="batch:back"))
         
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text="Select the course for all files:",
+            text="<b>Select Academic Semester:</b>",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_selecting_semester"
+
+    # -------------------------
+    # Batch: Semester Selected - Now Show Courses for that Semester
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("batch:sem:"))
+    def batch_semester_selected(call):
+        chat_id = call.message.chat.id
+        semester = call.data.split(":")[2]
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="HTML")
+            schedule_delete(chat_id, call.message.message_id)
+            return
+        
+        session["selected_semester"] = semester
+        program_id = batch_queues[chat_id][0]['program_id']
+        courses = get_courses_by_program(program_id, semester=semester)
+        
+        if not courses:
+            bot.answer_callback_query(call.id, f"No courses found for {semester} semester.", show_alert=True)
+            return
+
+        kb = InlineKeyboardMarkup()
+        for c in courses:
+            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"batch_course:{c['id']}"))
+        kb.add(InlineKeyboardButton(" Back", callback_data="batch:course"))
+        
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=f"<b>Select {semester} Semester Course:</b>",
             parse_mode="HTML",
             reply_markup=kb
         )
@@ -695,18 +730,56 @@ def groups_handler(bot):
             return
             
         file_data = queue[idx]
-        program_id = file_data['program_id']
-        courses = get_courses_by_program(program_id)
         
         kb = InlineKeyboardMarkup()
-        for c in courses:
-            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"bindiv_course:{c['id']}"))
+        kb.add(
+            InlineKeyboardButton("Alpha Semester", callback_data="bindiv:sem:Alpha"),
+            InlineKeyboardButton("Omega Semester", callback_data="bindiv:sem:Omega")
+        )
         kb.add(InlineKeyboardButton("Cancel Entire Batch", callback_data="batch:cancel"))
         
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=f"📂 <b>Processing File {idx + 1} of {len(queue)}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\n<b>Select Course:</b>",
+            text=f"📂 <b>Processing File {idx + 1} of {len(queue)}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\n<b>Select Academic Semester:</b>",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+        session["stage"] = "batch_indiv_semester"
+
+    # -------------------------
+    # Individual: Semester Selected
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("bindiv:sem:"))
+    def bindiv_sem_selected(call):
+        chat_id = call.message.chat.id
+        semester = call.data.split(":")[2]
+        session_key = f"{chat_id}_{call.message.message_id}"
+        session = group_sessions.get(session_key)
+        if not session:
+            bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="Session expired", parse_mode="HTML")
+            schedule_delete(chat_id, call.message.message_id)
+            return
+
+        idx = session["current_file_idx"]
+        queue = batch_queues.get(chat_id, [])
+        file_data = queue[idx]
+        program_id = file_data['program_id']
+        courses = get_courses_by_program(program_id, semester=semester)
+
+        if not courses:
+            bot.answer_callback_query(call.id, f"No courses found for {semester} semester.", show_alert=True)
+            return
+
+        kb = InlineKeyboardMarkup()
+        for c in courses:
+            kb.add(InlineKeyboardButton(c['course_code'], callback_data=f"bindiv_course:{c['id']}"))
+        kb.add(InlineKeyboardButton(" Back", callback_data="batch:assign_indiv"))
+
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=f"📂 <b>Processing File {idx + 1} of {len(queue)}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\n<b>Select {semester} Semester Course:</b>",
             parse_mode="HTML",
             reply_markup=kb
         )
