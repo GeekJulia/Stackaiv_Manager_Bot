@@ -9,7 +9,9 @@ from ..database.queries import (
     get_resource_types,
     save_resource,
     check_duplicate_resource,
-    save_approval
+    save_approval,
+    get_course_info,
+    get_resource_type_info
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
@@ -567,11 +569,20 @@ def groups_handler(bot):
         
         queue = batch_queues[chat_id]
         file_list = f"<b>{len(queue)} files ready to upload</b>\n\n"
-        file_list += f"<b>Course:</b> <code>{escape_html(course['course_code']) if course else 'Not selected'}</code>\n"
-        file_list += f"<b>Type:</b> <code>{escape_html(resource_type['name']) if resource_type else 'Not selected'}</code>\n\n"
+        
+        c_code = escape_html(course['course_code']) if course else 'Not selected'
+        t_name = escape_html(resource_type['name']) if resource_type else 'Not selected'
+        
+        file_list += f"<b>Course:</b> <code>{c_code}</code>\n"
+        file_list += f"<b>Type:</b> <code>{t_name}</code>\n\n"
         file_list += "Files:\n"
+        
         for i, f in enumerate(queue, 1):
-            file_list += f"  {i}. <code>{escape_html(f['file_name'])}</code>\n"
+            fname = escape_html(f['file_name'])
+            # Check for duplicate
+            is_dup = safe_db_operation(check_duplicate_resource, False, course_id, resource_type_id, f['file_name'])
+            dup_label = " ⚠️ <i>(Existing - will be skipped)</i>" if is_dup else ""
+            file_list += f"  {i}. <code>{fname}</code>{dup_label}\n"
         
         # Now show "Process All" button
         kb = InlineKeyboardMarkup()
@@ -695,7 +706,7 @@ def groups_handler(bot):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=f"<b>Processing File {idx + 1} of {len(queue)}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\nSelect Course:",
+            text=f"📂 <b>Processing File {idx + 1} of {len(queue)}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\n<b>Select Course:</b>",
             parse_mode="HTML",
             reply_markup=kb
         )
@@ -722,10 +733,13 @@ def groups_handler(bot):
             kb.add(InlineKeyboardButton(r['name'], callback_data=f"bindiv_type:{r['id']}"))
         
         file_data = batch_queues[chat_id][idx]
+        course_info = get_course_info(course_id)
+        c_code = escape_html(course_info['course_code']) if course_info else "Selected Course"
+
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=call.message.message_id,
-            text=f"<b>Processing File {idx + 1} of {len(batch_queues[chat_id])}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\nSelect Resource Type:",
+            text=f"📂 <b>Processing File {idx + 1} of {len(batch_queues[chat_id])}</b>\n\n<code>{escape_html(file_data['file_name'])}</code>\n\n<b>Course:</b> {c_code}\n<b>Select Resource Type:</b>",
             parse_mode="HTML",
             reply_markup=kb
         )

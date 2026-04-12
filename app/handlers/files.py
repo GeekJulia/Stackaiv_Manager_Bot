@@ -14,6 +14,9 @@ from ..database.queries import (
     check_duplicate_resource_by_type,
     save_resource_with_type_check,
     save_admin_message,
+    get_course_info,
+    get_resource_type_info,
+    check_duplicate_resource,
     get_program_info,
     check_archive_access
 )
@@ -376,13 +379,20 @@ def files_handler(bot):
 
         session["resource_type_id"] = res_type_id
 
+        # Get names for the prompt
+        course_info = get_course_info(session["course_id"])
+        type_info = get_resource_type_info(res_type_id)
+        
+        c_name = escape_html(course_info['course_code']) if course_info else "Selected Course"
+        t_name = escape_html(type_info['name']) if type_info else "Selected Type"
+
         # Replace the resource type selection message with the "send file" prompt
         safe_edit_or_send(
             bot,
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=" Send the file or documents now (PDF, DOCX, etc).",
-            parse_mode="Markdown",
+            text=f" 📤 <b>Send the {t_name} for {c_name} now.</b>\n\n(You can send multiple files at once)",
+            parse_mode="HTML",
         )
 
     # -------------------------
@@ -440,13 +450,25 @@ def files_handler(bot):
         
         queue = file_batch_queues[user_id]
         
-        # Build file list text - use HTML for absolute safety with filenames
-        file_list = " <b>Files queued for upload:</b>\n\n"
+        # Get context info
+        course_id = queue[0]['course_id']
+        type_id = queue[0]['resource_type_id']
+        course_info = get_course_info(course_id)
+        type_info = get_resource_type_info(type_id)
+        
+        c_name = escape_html(course_info['course_code']) if course_info else "Course"
+        t_name = escape_html(type_info['name']) if type_info else "Resource Type"
+        
+        # Build file list text
+        file_list = f" <b>Files queued for {t_name} ({c_name}):</b>\n\n"
         for i, f in enumerate(queue, 1):
-            course = get_course_info(f['course_id'])
             fname = escape_html(f['file_name'])
-            ccode = escape_html(course['course_code'])
-            file_list += f"{i}. <code>{fname}</code>\n   → {ccode}\n"
+            
+            # Check for duplicate
+            is_dup = safe_db_operation(check_duplicate_resource, False, course_id, type_id, f['file_name'])
+            dup_label = " ⚠️ <i>(Existing - will be skipped)</i>" if is_dup else ""
+            
+            file_list += f"{i}. <code>{fname}</code>{dup_label}\n"
         
         file_list += f"\n <b>{len(queue)} file(s) ready</b>\n\n"
         file_list += "Review files above. Confirm to upload all."
@@ -869,7 +891,7 @@ def files_handler(bot):
         for file_data in queue:
             try:
                 is_duplicate = safe_db_operation(
-                    check_duplicate_resource_by_type,
+                    check_duplicate_resource,
                     False,
                     file_data['course_id'],
                     file_data['resource_type_id'],

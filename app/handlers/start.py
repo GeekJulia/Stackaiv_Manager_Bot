@@ -142,6 +142,36 @@ def start_handler(bot):
             user_sessions[telegram_id] = {"stage": "awaiting_registration"}
             bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
+    @bot.message_handler(commands=['hub'])
+    def hub_command(message):
+        if message.chat.type in ['group', 'supergroup']:
+            bot.send_message(
+                message.chat.id,
+                " *Private Command Only*\n\nPlease send me a private message to access your Hub.",
+                parse_mode="Markdown"
+            )
+            return
+
+        user_id = message.from_user.id
+        program_id = safe_db_operation(get_user_program_id, None, user_id)
+        
+        if program_id:
+            program = safe_db_operation(get_program_info, None, program_id)
+            if program:
+                user_sessions[user_id] = {
+                    "program_id": program_id,
+                    "stage": "authenticated"
+                }
+                show_program_hub_panel(bot, message.chat.id, program)
+                return
+
+        bot.send_message(
+            message.chat.id,
+            " ⚠️ *No Active Hub Found*\n\nYou haven't registered or joined a program hub yet.\n\n"
+            "Please enter /start to get started.",
+            parse_mode="Markdown"
+        )
+
     @bot.message_handler(func=lambda m: user_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_registration")
     def process_registration(message):
         telegram_id = message.from_user.id

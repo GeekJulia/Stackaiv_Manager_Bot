@@ -258,6 +258,30 @@ def get_resource_types():
             cursor.execute("SELECT id, name FROM resource_types")
             return [{"id": r[0], "name": r[1]} for r in cursor.fetchall()]
 
+def get_resource_type_info(type_id):
+    """Get name of a specific resource type"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, name FROM resource_types WHERE id = %s", (type_id,))
+            r = cursor.fetchone()
+            return {"id": r[0], "name": r[1]} if r else None
+
+def get_course_info(course_id):
+    """Get basic info for a course"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, course_code, program_id, academic_level, semester FROM courses WHERE id = %s", (course_id,))
+            r = cursor.fetchone()
+            if r:
+                return {
+                    "id": r[0],
+                    "course_code": r[1],
+                    "program_id": r[2],
+                    "level": r[3],
+                    "semester": r[4]
+                }
+            return None
+
 
 def save_course_resource_types(course_id, resource_type_ids):
     if not resource_type_ids:
