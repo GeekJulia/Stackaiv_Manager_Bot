@@ -54,7 +54,7 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
     )
     
     # Semester Toggle Button
-    kb.add(InlineKeyboardButton(f"🔄 Switch to {other_semester} Semester", callback_data=f"hub:toggle_semester:{other_semester}"))
+    kb.add(InlineKeyboardButton(f"🔄 Switch to {other_semester.upper()} Semester", callback_data=f"hub:toggle_semester:{other_semester}"))
     
     # New Archive and Promote Buttons
     kb.add(InlineKeyboardButton(" 🗄 Past Level Archives", callback_data="hub:archives"))
@@ -72,7 +72,7 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
         text += f"_Class of {program['graduation_year']}_\n"
     
     # Show active semester
-    text += f"📊 *Semester:* _{current_semester}_\n"
+    text += f"📊 *Semester:* _{current_semester.upper()}_\n"
     
     text += f"\n{extra_text}What would you like to do?"
     
@@ -138,12 +138,13 @@ def start_handler(bot):
             msg = (
                 " Welcome to Stackaiv!\n\n"
                 "To get started, please reply with your details in this exact format:\n\n"
-                "**Name, Program, Level, Grad Year, College, Career**\n\n"
-                "_Example: `Julia, Computer Science, 400, 2026, CST, Developer`_"
+                "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
+                "⚠️ <b>IMPORTANT: YOUR PROGRAM NAME MUST BE IN FULL (e.g., \"COMPUTER SCIENCE\", NOT \"CS\" OR \"CompSci\"). FAILURE TO DO SO MAY RESULT IN PAYING FOR AN UNRECOGNIZED PROGRAM!</b> ⚠️\n\n"
+                "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>"
             )
             
             user_sessions[telegram_id] = {"stage": "awaiting_registration"}
-            bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+            bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
     @bot.message_handler(commands=['hub'])
     def hub_command(message):
@@ -225,8 +226,11 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id, 
             message_id=call.message.message_id, 
-            text="Registration cancelled. Please send your details again:\n\n**Name, Program, Level, Grad Year, College, Career**",
-            parse_mode="Markdown"
+            text="Registration cancelled. Please send your details again:\n\n"
+                 "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
+                 "⚠️ <b>IMPORTANT: YOUR PROGRAM NAME MUST BE IN FULL (e.g., \"COMPUTER SCIENCE\", NOT \"CS\" OR \"CompSci\"). FAILURE TO DO SO MAY RESULT IN PAYING FOR AN UNRECOGNIZED PROGRAM!</b> ⚠️\n\n"
+                 "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>",
+            parse_mode="HTML"
         )
         user_sessions[call.from_user.id]['stage'] = "awaiting_registration"
 
@@ -661,10 +665,11 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=" 📝 *Re-register Your Details*\n\nPlease send your details again in the following format separated by commas (`,`):\n\n"
-                 "**Name, Program, Level, Grad Year, College, Career**\n\n"
-                 "_Example: `Julia, Computer Science, 400, 2026, CST, Developer`_",
-            parse_mode="Markdown"
+            text=" 📝 <b>Re-register Your Details</b>\n\nPlease send your details again in the following format separated by commas (`,`):\n\n"
+                 "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
+                 "⚠️ <b>IMPORTANT: YOUR PROGRAM NAME MUST BE IN FULL (e.g., \"COMPUTER SCIENCE\", NOT \"CS\" OR \"CompSci\"). FAILURE TO DO SO MAY RESULT IN PAYING FOR AN UNRECOGNIZED PROGRAM!</b> ⚠️\n\n"
+                 "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>",
+            parse_mode="HTML"
         )
 
     @bot.message_handler(commands=['whoami'])
