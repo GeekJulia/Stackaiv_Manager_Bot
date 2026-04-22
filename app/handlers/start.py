@@ -63,8 +63,9 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
     creator = safe_db_operation(get_program_creator, None, program['id'])
     if creator and creator['telegram_id'] == chat_id:
         kb.add(InlineKeyboardButton(" 📊 Promote Hub Level", callback_data="hub:promote"))
+        kb.add(InlineKeyboardButton(" 🔄 Reset Semester Data", callback_data="hub:reregister"))
 
-    kb.add(InlineKeyboardButton(" 🔄 Re-register (Reset)", callback_data="hub:reregister"))
+    kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
     
     text = f" *{program['program_name']} {program['level']} Hub*\n"
     if program.get('graduation_year'):
@@ -250,12 +251,29 @@ def start_handler(bot):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=" *Processing registration...*",
+            text=" *Processing...*",
             parse_mode="Markdown"
         )
         loading_msg_id = call.message.message_id
 
         try:
+            is_update = session.get('is_update', False)
+            
+            # Check if user already exists
+            user_info = safe_db_operation(get_user_info_by_telegram_id, None, telegram_id)
+            if user_info and user_info.get('career') and not is_update:
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton(" Contact Admin", callback_data="action:contact_admin"))
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    " ⚠️ *Account Already Present*\n\nYour account is already registered on Stackaiv. If you need to make changes or believe this is an error, please contact our admin team.",
+                    reply_markup=kb,
+                    parse_mode="Markdown"
+                )
+                return
+
             # Save User
             saved_user_id = safe_db_operation(
                 save_user,
@@ -633,6 +651,22 @@ def start_handler(bot):
     def cancel_reregister(call):
         bot.send_message(call.message.chat.id, " Re-registration cancelled. Your data remains intact.", parse_mode="Markdown")
 
+    @bot.callback_query_handler(func=lambda call: call.data == "hub:update_details")
+    def update_details_start(call):
+        user_id = call.from_user.id
+        user_sessions[user_id] = {
+            "stage": "awaiting_registration",
+            "is_update": True
+        }
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=" 📝 *Re-register Your Details*\n\nPlease send your details again in the following format separated by commas (`,`):\n\n"
+                 "**Name, Program, Level, Grad Year, College, Career**\n\n"
+                 "_Example: `Julia, Computer Science, 400, 2026, CST, Developer`_",
+            parse_mode="Markdown"
+        )
+
     @bot.message_handler(commands=['whoami'])
     def whoami(message):
         if message.chat.type in ['group', 'supergroup']:
@@ -737,22 +771,49 @@ def start_handler(bot):
             edit_message_safe(bot, call.message.chat.id, loading_msg_id, " ❌ Failed to notify admin.")
 
     @bot.message_handler(func=lambda m: user_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_admin_message")
-    def handle_admin_message(message):
+    def handle_admin_message_input(message):
         user_id = message.from_user.id
         text = message.text.strip()
         
         if not text:
             return
 
-        loading_msg_id = send_loading_message(bot, message.chat.id, " *Sending your message...*")
+        # Natural Confirmation Flow
+        user_sessions[user_id]['pending_admin_msg'] = text
+        user_sessions[user_id]['stage'] = "confirm_admin_message"
+
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton("✅ Yes, Send", callback_data="admin_msg:confirm"),
+            InlineKeyboardButton("❌ No, Re-type", callback_data="admin_msg:cancel")
+        )
+
+        bot.send_message(
+            message.chat.id,
+            f" *Confirm Your Message*\n\nYou are about to send this message to the admin:\n\n\"{text}\"\n\nIs this correct?",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "admin_msg:confirm")
+    def confirm_admin_message(call):
+        user_id = call.from_user.id
+        session = user_sessions.get(user_id, {})
+        text = session.get('pending_admin_msg')
+        
+        if not text:
+            bot.answer_callback_query(call.id, "Session expired, please try again.")
+            return
+
+        loading_msg_id = send_loading_message(bot, call.message.chat.id, " *Sending your message...*")
         
         try:
             safe_db_operation(
                 save_admin_message,
                 None,
                 telegram_id=user_id,
-                username=message.from_user.username,
-                first_name=message.from_user.first_name,
+                username=call.from_user.username,
+                first_name=call.from_user.first_name,
                 message_text=text,
                 message_type='support'
             )
@@ -761,20 +822,32 @@ def start_handler(bot):
             
             edit_message_safe(
                 bot,
-                message.chat.id,
+                call.message.chat.id,
                 loading_msg_id,
-                " *Message Sent!*\n\nOur admin team has received your message and will get back to you shortly if needed.\n\nUse /start to return home.",
+                " ✅ *Message Sent!*\n\nOur admin team has received your message and will get back to you shortly if needed.\n\nUse /start to return home.",
                 parse_mode="Markdown"
             )
         except Exception as e:
             print(f"ERROR saving admin message: {e}")
             edit_message_safe(
                 bot,
-                message.chat.id,
+                call.message.chat.id,
                 loading_msg_id,
-                " Failed to send message. Please try again later.",
+                " ❌ Failed to send message. Please try again later.",
                 parse_mode="Markdown"
             )
+
+    @bot.callback_query_handler(func=lambda call: call.data == "admin_msg:cancel")
+    def cancel_admin_message(call):
+        user_id = call.from_user.id
+        user_sessions[user_id] = {"stage": "awaiting_admin_message"}
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=" Message cancelled. Please type your message again below:",
+            parse_mode="Markdown"
+        )
 
     # -------------------------
     # Hub Promotion & Archives
