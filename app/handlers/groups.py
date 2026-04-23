@@ -11,7 +11,8 @@ from ..database.queries import (
     check_duplicate_resource,
     save_approval,
     get_course_info,
-    get_resource_type_info
+    get_resource_type_info,
+    get_program_activation_status
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
@@ -164,6 +165,19 @@ def groups_handler(bot):
                     parse_mode="Markdown"
                 )
                 # Clear session on error
+                group_sessions.pop(chat_id, None)
+                return
+            
+            is_active = safe_db_operation(get_program_activation_status, False, program_id)
+            if not is_active:
+                edit_message_safe(
+                    bot,
+                    chat_id,
+                    loading_msg_id,
+                    "⚠️ *Hub Not Activated*\n\nThis Program Hub requires activation before group integration is allowed.\n"
+                    "Please activate the Hub in your private chat with the bot first.",
+                    parse_mode="Markdown"
+                )
                 group_sessions.pop(chat_id, None)
                 return
             

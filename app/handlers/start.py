@@ -451,13 +451,22 @@ def start_handler(bot):
                 kb.add(InlineKeyboardButton(" 💳 Pay ₦3,000", url=pay_data['authorization_url']))
                 kb.add(InlineKeyboardButton(" Back to Home", callback_data="action:goto_home"))
                 
+                activation_msg = (
+                    " 🚀 <b>Activate Your Program Hub</b>\n\n"
+                    "A fee of <b>₦3,000</b> is required to initialize this hub.\n\n"
+                    f"⚠️ <b>THIS IS A ONE-TIME PAYMENT FOR EVERYONE IN {program_name.upper()} {level.upper()}!</b> ⚠️\n\n"
+                    "<i>Note: If you are not the Course Rep, you may still proceed with the payment, "
+                    "but it is highly recommended that the Course Rep officially handles this activation.</i>\n\n"
+                    "Click the button below to pay via Paystack:"
+                )
+                
                 edit_message_safe(
                     bot,
                     call.message.chat.id,
                     loading_msg_id,
-                    " 🚀 *Activate Your Program Hub*\n\nA fee of **₦3,000** is required to initialize this hub. Once paid, you and your coursemates will have full access.\n\nClick the button below to pay via Paystack:",
+                    activation_msg,
                     reply_markup=kb,
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
             else:
                 error = pay_data.get('error', 'Initialization failed') if pay_data else 'Service unreachable'
