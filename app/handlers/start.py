@@ -29,7 +29,7 @@ from ..services.payments import initialize_transaction, generate_payment_referen
 
 user_sessions = TTLDict()
 
-QUOTES = [
+QUOTES = [#test
     "Programming is not about typing, it's about thinking.",
     "First, solve the problem. Then, write the code.",
     "Code is like humor. When you have to explain it, it's bad.",
