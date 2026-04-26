@@ -5,7 +5,7 @@ from .handlers.start import start_handler
 from .handlers.notes import notes_handler
 from .handlers.files import files_handler
 from .handlers.groups import groups_handler
-# from .handlers.activate import activation_handler
+from .handlers.activate import activation_handler
 from .handlers.admin import admin_handler
 
 load_dotenv()
