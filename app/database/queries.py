@@ -727,6 +727,18 @@ def get_program_activation_status(program_id):
             r = cursor.fetchone()
             return r[0] if r else False
 
+def get_active_programs_count():
+    """Get the total number of currently active programs"""
+    with pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM programs
+                WHERE is_active = TRUE
+            """)
+            r = cursor.fetchone()
+            return r[0] if r else 0
+
 def get_all_programs():
     """Get all registered programs"""
     with pool.connection() as conn:

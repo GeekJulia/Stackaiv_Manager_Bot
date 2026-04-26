@@ -112,18 +112,32 @@ def groups_handler(bot):
         
         group_sessions[call.message.chat.id] = {
             "stage": "awaiting_program_id",
-            "setup_by": call.from_user.id
+            "setup_by": call.from_user.id,
+            "prompt_msg_id": call.message.message_id
         }
         
-        bot.send_message(
-            call.message.chat.id,
-            (
-                "Group Setup\n\n"
-                "Please send your *Program ID*.\n\n"
-                "Get your Program ID by sending /whoami to me in private chat."
-            ),
-            parse_mode="Markdown"
-        )
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=(
+                    "Group Setup\n\n"
+                    "Please send your *Program ID*.\n\n"
+                    "Get your Program ID by sending /whoami to me in private chat."
+                ),
+                parse_mode="Markdown"
+            )
+        except Exception:
+            msg = bot.send_message(
+                call.message.chat.id,
+                (
+                    "Group Setup\n\n"
+                    "Please send your *Program ID*.\n\n"
+                    "Get your Program ID by sending /whoami to me in private chat."
+                ),
+                parse_mode="Markdown"
+            )
+            group_sessions[call.message.chat.id]["prompt_msg_id"] = msg.message_id
     
     # -------------------------
     # Receive Program ID
@@ -132,6 +146,21 @@ def groups_handler(bot):
                          group_sessions.get(m.chat.id, {}).get("stage") == "awaiting_program_id")
     def receive_program_id(message):
         chat_id = message.chat.id
+        session = group_sessions.get(chat_id, {})
+        
+        # Delete user's program ID message to keep chat clean
+        try:
+            bot.delete_message(chat_id, message.message_id)
+        except Exception:
+            pass
+            
+        # Delete the previous prompt if we have its ID
+        prompt_msg_id = session.get("prompt_msg_id")
+        if prompt_msg_id:
+            try:
+                bot.delete_message(chat_id, prompt_msg_id)
+            except Exception:
+                pass
         
         # Send loading message
         loading_msg_id = send_loading_message(

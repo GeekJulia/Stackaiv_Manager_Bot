@@ -43,8 +43,7 @@ def notes_handler(bot):
             
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton(" Add New Courses", callback_data="notes:add_courses"))
-            if courses:
-                kb.add(InlineKeyboardButton(" Modify Resource Types", callback_data="notes:modify_resources"))
+
             kb.add(InlineKeyboardButton(" Help", callback_data="notes:help"))
             kb.add(InlineKeyboardButton(" Back", callback_data="action:goto_space"))
             
@@ -105,7 +104,7 @@ def notes_handler(bot):
         try:
             bot.edit_message_text(
                 (
-                    " *Add Your Courses*\n\n"
+                    f" *Add Your Courses ({active_semester} Semester)*\n\n"
                     " *Important:*\n"
                     "Please enter your courses carefully. Format matters!\n\n"
                     "Send your courses separated by **commas**:\n\n"
@@ -122,7 +121,7 @@ def notes_handler(bot):
             bot.send_message(
                 call.message.chat.id,
                 (
-                    " *Add Your Courses*\n\n"
+                    f" *Add Your Courses ({active_semester} Semester)*\n\n"
                     "Send your courses separated by commas:\n\n"
                     "`MAT 111, CSC 111, PHY 101`"
                 ),
@@ -137,6 +136,9 @@ def notes_handler(bot):
     def receive_courses(message):
         user_id = message.from_user.id
         raw_courses = message.text.strip()
+        
+        session = notes_sessions.get(user_id, {})
+        semester = session.get("semester", "Alpha")
 
         # Convert to uppercase for consistency and parse courses - support both comma and pipe separation
         course_codes = [c.strip().upper() for c in raw_courses.replace("|", ",").split(",") if c.strip()]
@@ -166,7 +168,7 @@ def notes_handler(bot):
         bot.send_message(
             message.chat.id,
             (
-                f" *Confirm Your Courses*\n\n"
+                f" *Confirm Your Courses ({semester} Semester)*\n\n"
                 f"{courses_list}\n\n"
                 f"Is this correct?"
             ),
@@ -204,15 +206,44 @@ def notes_handler(bot):
 
             course_ids = safe_db_operation(save_courses, [], program_id, course_codes, academic_level, semester)
 
-            notes_sessions[user_id].update({
-                "stage": "select_resources",
-                "course_ids": course_ids,
-                "course_codes": course_codes,
-                "selected_resources": set(),
-                "message_id": message_id
-            })
+            # AUTO ASSIGN ALL RESOURCES
+            resource_types = safe_db_operation(get_resource_types, [])
+            all_res_ids = [r['id'] for r in resource_types] if resource_types else []
+            if all_res_ids:
+                for cid in course_ids:
+                    safe_db_operation(save_course_resource_types, None, cid, all_res_ids)
 
-            show_resource_checkboxes(bot, call.message.chat.id, user_id, loading_msg_id)
+            courses_list = "\n".join([f"• {code}" for code in course_codes])
+
+            message_text = (
+                f" *{semester} Semester — Courses Registered*\n\n"
+                f"{courses_list}\n\n"
+                "⚠️ *Important Notice*\n"
+                "These courses represent your entire cohort's curriculum for this semester. "
+                "Every student in your program will depend on this list to share and access resources.\n\n"
+                "_Please ensure all departmental courses — including electives — are included before confirming._"
+            )
+
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton(" ✅ Confirm & Go to Hub", callback_data="notes:setup_done"))
+
+            try:
+                bot.delete_message(call.message.chat.id, loading_msg_id)
+            except:
+                pass
+            try:
+                bot.delete_message(call.message.chat.id, message_id)
+            except:
+                pass
+
+            bot.send_message(
+                call.message.chat.id,
+                message_text,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+
+            notes_sessions.pop(user_id, None)
 
         except Exception as e:
             edit_message_safe(
@@ -254,246 +285,7 @@ def notes_handler(bot):
                 parse_mode="Markdown"
             )
 
-    # -------------------------
-    # Helper: Show Resource Type Checkboxes
-    # -------------------------
-    def show_resource_checkboxes(bot, chat_id, user_id, message_id=None):
-        """Display resource types as a checkbox list with better UI"""
-        session = notes_sessions.get(user_id, {})
-        
-        try:
-            resource_types = safe_db_operation(get_resource_types, [])
-            if not resource_types:
-                edit_message_safe(
-                    bot,
-                    chat_id,
-                    message_id or session.get("message_id"),
-                    " No resource types available. Please contact support.",
-                    parse_mode="Markdown"
-                )
-                return
-        except DatabaseTimeoutError:
-            edit_message_safe(
-                bot,
-                chat_id,
-                message_id or session.get("message_id"),
-                " *System is busy*\n\nPlease try again in a moment.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        selected = session.get("selected_resources", set())
 
-        # Create checkbox display
-        checkbox_list = ""
-        for r in resource_types:
-            checkbox = "" if r['id'] in selected else "☐"
-            checkbox_list += f"{checkbox} {r['name']}\n"
-
-        message_text = (
-            " *Select Resource Types for Your Courses*\n\n"
-            f"{checkbox_list}\n"
-            "_Click buttons to toggle selections_"
-        )
-
-        kb = InlineKeyboardMarkup(row_width=2)
-        for r in resource_types:
-            checkbox = "" if r['id'] in selected else "☐"
-            kb.add(InlineKeyboardButton(
-                f"{checkbox} {r['name']}",
-                callback_data=f"notes:res:{r['id']}"
-            ))
-
-        kb.add(InlineKeyboardButton(" Done Selecting", callback_data="notes:confirm_resources"))
-        kb.add(InlineKeyboardButton(" Back", callback_data="notes:start"))
-
-        edit_message_safe(
-            bot,
-            chat_id,
-            message_id or session.get("message_id"),
-            message_text,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
-    # -------------------------
-    # Toggle Resource Selection
-    # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data.startswith("notes:res:"))
-    def toggle_resource(call):
-        user_id = call.from_user.id
-        message_id = call.message.message_id
-        
-        try:
-            res_id = int(call.data.split(":")[2])
-            selected = notes_sessions[user_id]["selected_resources"]
-
-            if res_id in selected:
-                selected.remove(res_id)
-                action = "removed"
-            else:
-                selected.add(res_id)
-                action = "added"
-
-            # Update message with new checkbox states
-            resource_types = get_resource_types()
-            checkbox_list = ""
-            for r in resource_types:
-                checkbox = "" if r['id'] in selected else "☐"
-                checkbox_list += f"{checkbox} {r['name']}\n"
-
-            message_text = (
-                " *Select Resource Types for Your Courses*\n\n"
-                f"{checkbox_list}\n"
-                "_Click buttons to toggle selections_"
-            )
-
-            kb = InlineKeyboardMarkup(row_width=2)
-            for r in resource_types:
-                checkbox = "" if r['id'] in selected else "☐"
-                kb.add(InlineKeyboardButton(
-                    f"{checkbox} {r['name']}",
-                    callback_data=f"notes:res:{r['id']}"
-                ))
-
-            kb.add(InlineKeyboardButton(" Done Selecting", callback_data="notes:confirm_resources"))
-            kb.add(InlineKeyboardButton(" Back", callback_data="notes:start"))
-
-            try:
-                bot.edit_message_text(
-                    message_text,
-                    call.message.chat.id,
-                    message_id,
-                    parse_mode="Markdown",
-                    reply_markup=kb
-                )
-            except:
-                pass
-
-            bot.answer_callback_query(call.id, f" {action.capitalize()}")
-
-        except Exception as e:
-            bot.answer_callback_query(call.id, f" Error: {str(e)}", show_alert=True)
-
-    # -------------------------
-    # Confirm Resource Types
-    # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "notes:confirm_resources")
-    def confirm_resources(call):
-        user_id = call.from_user.id
-        message_id = call.message.message_id
-        session = notes_sessions.get(user_id)
-
-        if not session or not session.get("selected_resources"):
-            bot.answer_callback_query(call.id, " Select at least one resource type", show_alert=True)
-            return
-
-        # Show confirmation message
-        selected_ids = list(session["selected_resources"])
-        resource_types = get_resource_types()
-        selected_names = [r['name'] for r in resource_types if r['id'] in selected_ids]
-        resources_list = "\n".join([f"• {name}" for name in selected_names])
-
-        message_text = (
-            " *Confirm Resource Types*\n\n"
-            "You've selected the following resource types for all your courses:\n\n"
-            f"{resources_list}\n\n"
-            "Is this correct?"
-        )
-
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton(" Yes, Proceed", callback_data="notes:submit"))
-        kb.add(InlineKeyboardButton(" No, Change", callback_data="notes:select_resources"))
-
-        try:
-            bot.edit_message_text(
-                message_text,
-                call.message.chat.id,
-                message_id,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-        except:
-            bot.send_message(
-                call.message.chat.id,
-                message_text,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-
-    # -------------------------
-    # Change Resource Selection
-    # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "notes:select_resources")
-    def select_resources_again(call):
-        user_id = call.from_user.id
-        show_resource_checkboxes(bot, call.message.chat.id, user_id)
-
-    # -------------------------
-    # Submit - Save Resource Types for All Courses -  FIXED
-    # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "notes:submit")
-    def submit_resources(call):
-        user_id = call.from_user.id
-        message_id = call.message.message_id
-        session = notes_sessions.get(user_id)
-
-        try:
-            loading_msg = bot.send_message(
-                call.message.chat.id,
-                " *Processing...*\n\n Saving your setup...",
-                parse_mode="Markdown"
-            )
-
-            # Save resource types for all newly registered courses
-            selected_resources = list(session["selected_resources"])
-            for course_id in session["course_ids"]:
-                save_course_resource_types(course_id, selected_resources)
-
-            # Build success message using ONLY the courses just registered
-            course_codes = session.get("course_codes", [])
-            semester = session.get("semester", "this")
-            courses_list = "\n".join([f"• {code}" for code in course_codes])
-
-            program_id = get_active_program_id(user_id)
-            program_info = get_program_info(program_id)
-
-            message_text = (
-                f" *{semester} Semester — Courses Registered*\n\n"
-                f"{courses_list}\n\n"
-                "⚠️ *Important Notice*\n"
-                "These courses represent your entire cohort's curriculum for this semester. "
-                "Every student in your program will depend on this list to share and access resources.\n\n"
-                "_Please ensure all departmental courses — including electives — are included before confirming._"
-            )
-
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton(" ✅ Confirm & Go to Hub", callback_data="notes:setup_done"))
-
-            try:
-                bot.delete_message(call.message.chat.id, loading_msg.message_id)
-            except:
-                pass
-            try:
-                bot.delete_message(call.message.chat.id, message_id)
-            except:
-                pass
-
-            bot.send_message(
-                call.message.chat.id,
-                message_text,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-
-            notes_sessions.pop(user_id, None)
-
-        except Exception as e:
-            bot.send_message(
-                call.message.chat.id,
-                f" Error: {str(e)}\n\nPlease try again.",
-                parse_mode="Markdown"
-            )
 
     @bot.callback_query_handler(func=lambda call: call.data == "notes:setup_done")
     def setup_done(call):
@@ -506,21 +298,6 @@ def notes_handler(bot):
             show_program_hub_panel(bot, call.message.chat.id, program, message_id=call.message.message_id)
         else:
             bot.answer_callback_query(call.id, "Could not load hub. Please /start again.", show_alert=True)
-
-    # -------------------------
-    # Modify Resource Types
-    # -------------------------
-    @bot.callback_query_handler(func=lambda call: call.data == "notes:modify_resources")
-    def modify_resources(call):
-        user_id = call.from_user.id
-        
-        notes_sessions[user_id] = {
-            "stage": "select_resources",
-            "course_ids": [],  # Not needed for modification
-            "selected_resources": set()
-        }
-
-        show_resource_checkboxes(bot, call.message.chat.id, user_id)
 
     # -------------------------
     # Help
@@ -541,14 +318,10 @@ def notes_handler(bot):
                     "• Separate courses with commas\n"
                     "• Max 20 courses per add\n\n"
                     "*Resource Types:*\n"
-                    "Each course can have multiple resource types\n"
-                    "• Notes, PQ Images, PQ Files\n"
-                    "• Textbooks, Study Files, Code\n"
-                    "• Drawings, Videos\n\n"
+                    "Every course is automatically set up with all resource types (Notes, Past Questions, Textbooks, Code, Videos, etc).\n\n"
                     "*Pro Tips:*\n"
                     "• Double-check courses before confirming\n"
-                    "• Select all resource types you'll use\n"
-                    "• You can modify later\n"
+                    "• Ensure all departmental courses are added\n"
                 ),
                 call.message.chat.id,
                 message_id,

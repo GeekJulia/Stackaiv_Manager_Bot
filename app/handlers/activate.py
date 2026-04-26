@@ -4,6 +4,8 @@ from ..database.queries import (
     get_group_program_id,
     get_program_info,
     get_program_activation_status,
+    get_active_programs_count,
+    activate_program,
     get_courses_by_program
 )
 from ..services.payments import initialize_transaction, generate_payment_reference, verify_transaction
@@ -38,11 +40,23 @@ def activation_handler(bot):
         program_id = resolve_program_from_chat(call.message)
         
         try:
-            program_id = get_group_program_id(program_id)
             program_info = get_program_info(program_id)
             
             # Check if already active
             is_active = get_program_activation_status(program_id)
+            
+            # Auto-activate for the first 4 programs
+            if not is_active:
+                active_count = get_active_programs_count()
+                if active_count < 4:
+                    activate_program(program_id, is_paid=False)
+                    is_active = True
+                    bot.send_message(
+                        call.message.chat.id,
+                        " 🎉 *Congratulations!* 🎉\n\n"
+                        "Your program is one of the first 4 to register, so your hub has been *activated for FREE!*",
+                        parse_mode="Markdown"
+                    )
             if is_active:
                 # Get existing courses
                 courses = get_courses_by_program(program_id)
