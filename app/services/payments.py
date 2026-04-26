@@ -182,6 +182,33 @@ def handle_payment_webhook(data):
     except Exception as e:
         return {"status": False, "error": f"Fulfillment error: {str(e)}"}
 
+def verify_transaction(reference):
+    """
+    Manually verify a Paystack transaction by its reference.
+    Useful for polling or manual checks when webhooks fail.
+    """
+    secret_key = os.getenv("PAYSTACK_SECRET_KEY")
+    if not secret_key:
+        return {"status": False, "error": "Paystack secret key not configured."}
+
+    url = f"{PAYSTACK_BASE_URL}/transaction/verify/{reference}"
+    headers = {
+        "Authorization": f"Bearer {secret_key.strip()}",
+        "Content-Type": "application/json",
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get("status") and data.get("data", {}).get("status") == "success":
+            return {"status": True, "data": data["data"]}
+        else:
+            return {"status": False, "error": data.get("message", "Verification failed")}
+    except Exception as e:
+        return {"status": False, "error": str(e)}
+
 def generate_payment_reference(user_id, program_id=None, ptype='ACT'):
     """Generate a unique payment reference"""
     import time
