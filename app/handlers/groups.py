@@ -140,6 +140,8 @@ def groups_handler(bot):
                 parse_mode="Markdown"
             )
             group_sessions[call.message.chat.id]["prompt_msg_id"] = msg.message_id
+            # Schedule deletion of this prompt if not answered within 60 seconds
+            schedule_delete(call.message.chat.id, msg.message_id, 60.0)
     
     # -------------------------
     # Receive Program ID
@@ -223,6 +225,7 @@ def groups_handler(bot):
             group_id = safe_db_operation(save_group, None, chat_id, program_id)
             
             if group_id:
+                # Keep this message permanent as requested
                 edit_message_safe(
                     bot,
                     chat_id,
@@ -239,36 +242,42 @@ def groups_handler(bot):
                     parse_mode="Markdown"
                 )
             else:
-                edit_message_safe(
+                err_msg = edit_message_safe(
                     bot,
                     chat_id,
                     loading_msg_id,
                     "Failed to save group configuration. Please try again.",
                     parse_mode="Markdown"
                 )
+                if err_msg:
+                    schedule_delete(chat_id, err_msg.message_id, 10.0)
             
             # Clean up session
             group_sessions.pop(chat_id, None)
             
         except DatabaseTimeoutError:
-            edit_message_safe(
+            err_msg = edit_message_safe(
                 bot,
                 chat_id,
                 loading_msg_id,
                 "System is busy. Please try again in a moment.",
                 parse_mode="Markdown"
             )
+            if err_msg:
+                schedule_delete(chat_id, err_msg.message_id, 10.0)
             # Clear session on error
             group_sessions.pop(chat_id, None)
         except Exception as e:
             print(f"ERROR in receive_program_id: {e}")
-            edit_message_safe(
+            err_msg = edit_message_safe(
                 bot,
                 chat_id,
                 loading_msg_id,
                 "An error occurred during setup. Please try again with /setupgroup",
                 parse_mode="Markdown"
             )
+            if err_msg:
+                schedule_delete(chat_id, err_msg.message_id, 10.0)
             # Clear session on error
             group_sessions.pop(chat_id, None)
     
@@ -319,27 +328,30 @@ def groups_handler(bot):
         try:
             program_id = safe_db_operation(get_group_program_id, None, chat_id)
             if not program_id:
-                bot.send_message(
+                msg = bot.send_message(
                     chat_id,
                     "This group is not configured. An admin should run /setupgroup or press 'Setup Group'.",
                     parse_mode="Markdown"
                 )
+                schedule_delete(chat_id, msg.message_id, 10.0)
                 return
             
             courses = safe_db_operation(get_courses_by_program, [], program_id)
             if not courses:
-                bot.send_message(
+                msg = bot.send_message(
                     chat_id,
                     "No courses are registered for this program yet. Please register courses in the program before uploading files.",
                     parse_mode="Markdown"
                 )
+                schedule_delete(chat_id, msg.message_id, 10.0)
                 return
         except DatabaseTimeoutError:
-            bot.send_message(
+            msg = bot.send_message(
                 chat_id,
                 "System is busy. Please try again in a moment.",
                 parse_mode="Markdown"
              )#//test
+            schedule_delete(chat_id, msg.message_id, 10.0)
             return
         
         # Extract course code
@@ -949,12 +961,14 @@ def groups_handler(bot):
         result_msg += f"\nApproved by: @{escape_html(approver_username)}"
         
         try:
-            bot.edit_message_text(
+            res_msg = bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=result_msg,
                 parse_mode="HTML"
             )
+            if res_msg:
+                schedule_delete(chat_id, res_msg.message_id, 10.0)
         except Exception:
             pass
         
@@ -1034,11 +1048,12 @@ def groups_handler(bot):
         is_duplicate = check_duplicate_resource(course_id, resource_type_id, file_name)
         
         if is_duplicate:
-            bot.send_message(
+            msg = bot.send_message(
                 chat_id,
                 "Already Added",
                 parse_mode="Markdown"
             )
+            schedule_delete(chat_id, msg.message_id, 5.0)
         else:
             # Save resource
             resource_id = save_resource(
@@ -1055,11 +1070,12 @@ def groups_handler(bot):
             # Get approver username
             approver_username = call.from_user.username or call.from_user.first_name
             
-            bot.send_message(
+            msg = bot.send_message(
                 chat_id,
                 f"Added and Approved by @{approver_username}",
                 parse_mode="Markdown"
             )
+            schedule_delete(chat_id, msg.message_id, 5.0)
         
         # Clean up session using the same key
         group_sessions.pop(session_key, None)
