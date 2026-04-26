@@ -12,7 +12,9 @@ from ..database.queries import (
     save_approval,
     get_course_info,
     get_resource_type_info,
-    get_program_activation_status
+    get_program_activation_status,
+    get_active_programs_count,
+    activate_program
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
@@ -199,16 +201,23 @@ def groups_handler(bot):
             
             is_active = safe_db_operation(get_program_activation_status, False, program_id)
             if not is_active:
-                edit_message_safe(
-                    bot,
-                    chat_id,
-                    loading_msg_id,
-                    "⚠️ *Hub Not Activated*\n\nThis Program Hub requires activation before group integration is allowed.\n"
-                    "Please activate the Hub in your private chat with the bot first.",
-                    parse_mode="Markdown"
-                )
-                group_sessions.pop(chat_id, None)
-                return
+                # Check for free tier
+                active_count = safe_db_operation(get_active_programs_count, 0)
+                if active_count < 5:
+                    # Auto-activate for free
+                    safe_db_operation(activate_program, False, program_id, is_paid=False)
+                    is_active = True
+                else:
+                    edit_message_safe(
+                        bot,
+                        chat_id,
+                        loading_msg_id,
+                        "⚠️ *Hub Not Activated*\n\nThis Program Hub requires activation before group integration is allowed.\n"
+                        "Please activate the Hub in your private chat with the bot first.",
+                        parse_mode="Markdown"
+                    )
+                    group_sessions.pop(chat_id, None)
+                    return
             
             # Save group with program
             group_id = safe_db_operation(save_group, None, chat_id, program_id)

@@ -24,7 +24,7 @@ telebot.apihelper.API_REQUEST_TIMEOUT = 30
 
 # Register handlers
 start_handler(bot)
-# activation_handler(bot)
+activation_handler(bot)
 notes_handler(bot)
 groups_handler(bot)
 files_handler(bot)

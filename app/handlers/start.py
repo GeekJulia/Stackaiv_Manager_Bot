@@ -84,6 +84,56 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
         bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
 
 
+def handle_hub_access(bot, chat_id, program, user_id, message_id=None, extra_text=""):
+    """
+    Common entry point for Hub access.
+    Checks if program is active. If not, checks free tier.
+    Redirects to activation screen if necessary.
+    """
+    program_id = program['id']
+    is_active = program.get('is_active', False)
+    
+    if is_active:
+        show_program_hub_panel(bot, chat_id, program, message_id=message_id, extra_text=extra_text)
+        return
+
+    # Not active — check for free tier
+    active_count = safe_db_operation(get_active_programs_count, 0)
+    if active_count < 5:
+        # Auto-activate for free
+        safe_db_operation(activate_program, False, program_id, is_paid=False)
+        # Refresh program info to get updated is_active
+        program = safe_db_operation(get_program_info, None, program_id)
+        congrats = f"🎉 *Early Adopter Bonus:* Your hub has been activated for FREE!\n\n"
+        show_program_hub_panel(bot, chat_id, program, message_id=message_id, extra_text=congrats + extra_text)
+    else:
+        # Show activation prompt
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton(" 💳 Activate Hub (\u20a63,000)", callback_data="action:activate_hub"))
+        kb.add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
+        
+        # Prepare session for activation callback
+        user_sessions[user_id]['pending_program'] = {
+            "level": program['level'],
+            "college": program['college'],
+            "program_name": program['program_name'],
+            "grad_year": str(program.get('graduation_year', '')),
+            "saved_user_id": user_id # Using user_id as a proxy for internal user record ID if needed
+        }
+        
+        text = (
+            f" ⚠️ *Hub Not Yet Active*\n\n"
+            f"The hub for *{program['program_name']}* exists but hasn't been activated yet.\n\n"
+            "A one-time activation fee is required to unlock resource sharing for your entire cohort.\n\n"
+            "Would you like to activate it now?"
+        )
+        
+        if message_id:
+            edit_message_safe(bot, chat_id, message_id, text, reply_markup=kb, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
+
+
 def start_handler(bot):
 
     @bot.message_handler(commands=['start'])
@@ -113,8 +163,8 @@ def start_handler(bot):
                         "program_id": program_id,
                         "stage": "authenticated"
                     }
-                    show_program_hub_panel(
-                        bot, message.chat.id, program, 
+                    handle_hub_access(
+                        bot, message.chat.id, program, telegram_id,
                         extra_text=f"Welcome back, {user_info['first_name']}!\n_{quote}_\n\n"
                     )
                     return
@@ -168,7 +218,7 @@ def start_handler(bot):
                     "program_id": program_id,
                     "stage": "authenticated"
                 }
-                show_program_hub_panel(bot, message.chat.id, program)
+                handle_hub_access(bot, message.chat.id, program, user_id)
                 return
 
         bot.send_message(
@@ -572,9 +622,9 @@ def start_handler(bot):
         
         try:
             safe_db_operation(save_courses, None, program_id, courses)
-            user_sessions[telegram_id]["stage"] = "authenticated"
+            user_sessions[user_id]["stage"] = "authenticated"
             program = safe_db_operation(get_program_info, None, program_id)
-            show_program_hub_panel(bot, message.chat.id, program, message_id=loading_msg_id)
+            handle_hub_access(bot, message.chat.id, program, user_id, message_id=loading_msg_id)
         except Exception as e:
             edit_message_safe(bot, message.chat.id, loading_msg_id, " Could not save courses. Try again.", parse_mode="Markdown")
 
@@ -595,7 +645,7 @@ def start_handler(bot):
                 "stage": "authenticated"
             }
             program = safe_db_operation(get_program_info, None, program_id)
-            show_program_hub_panel(bot, call.message.chat.id, program, message_id=loading_msg_id)
+            handle_hub_access(bot, call.message.chat.id, program, telegram_id, message_id=loading_msg_id)
         except Exception as e:
             edit_message_safe(
                 bot,
@@ -619,7 +669,7 @@ def start_handler(bot):
         if program_id:
             program = safe_db_operation(get_program_info, None, program_id)
             if program:
-                show_program_hub_panel(bot, call.message.chat.id, program, message_id=call.message.message_id)
+                handle_hub_access(bot, call.message.chat.id, program, user_id, message_id=call.message.message_id)
                 bot.answer_callback_query(call.id, f"Switched to {new_semester} Semester")
                 return
         
@@ -642,7 +692,7 @@ def start_handler(bot):
                 })
                 user_sessions[user_id] = session
                 
-                show_program_hub_panel(bot, call.message.chat.id, program, message_id=call.message.message_id)
+                handle_hub_access(bot, call.message.chat.id, program, user_id, message_id=call.message.message_id)
                 return
 
         # If no program was found, only then prompt for ID
@@ -672,7 +722,7 @@ def start_handler(bot):
                         "stage": "authenticated"
                     }
                     safe_db_operation(link_user_to_program, False, user_id, program_id)
-                    show_program_hub_panel(bot, message.chat.id, program, message_id=loading_msg_id, extra_text="*Welcome back!*\n\n")
+                    handle_hub_access(bot, message.chat.id, program, user_id, message_id=loading_msg_id, extra_text="*Welcome back!*\n\n")
                 else:
                     edit_message_safe(
                         bot,
