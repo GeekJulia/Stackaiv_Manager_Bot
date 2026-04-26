@@ -124,26 +124,41 @@ def save_program(level, college, program_name, user_id, graduation_year):
     try:
         with pool.connection() as conn:
             with conn.cursor() as cursor:
-                query = """
-                INSERT INTO programs (level, college, name, created_by, graduation_year)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (created_by) DO UPDATE
-                SET is_active = CASE 
-                        WHEN programs.graduation_year != EXCLUDED.graduation_year OR 
-                             programs.college != EXCLUDED.college OR 
-                             programs.name != EXCLUDED.name 
-                        THEN FALSE 
-                        ELSE programs.is_active 
-                    END,
-                    level = EXCLUDED.level,
-                    college = EXCLUDED.college,
-                    name = EXCLUDED.name,
-                    graduation_year = EXCLUDED.graduation_year
-                RETURNING id;
-                """
-                cursor.execute(query, (level, college, program_name, user_id, graduation_year))
+                # Avoid ON CONFLICT which requires a unique constraint
+                cursor.execute("""
+                    SELECT id, name, college, graduation_year, is_active 
+                    FROM programs 
+                    WHERE created_by = %s 
+                    ORDER BY id ASC LIMIT 1
+                """, (user_id,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    prog_id, ex_name, ex_college, ex_grad_year, ex_is_active = existing
+                    
+                    # If details changed, it becomes inactive again
+                    new_is_active = ex_is_active
+                    if str(ex_grad_year) != str(graduation_year) or ex_college != college or ex_name != program_name:
+                        new_is_active = False
+                        
+                    query = """
+                        UPDATE programs 
+                        SET level = %s, college = %s, name = %s, graduation_year = %s, is_active = %s
+                        WHERE id = %s
+                        RETURNING id;
+                    """
+                    cursor.execute(query, (level, college, program_name, graduation_year, new_is_active, prog_id))
+                else:
+                    query = """
+                        INSERT INTO programs (level, college, name, created_by, graduation_year)
+                        VALUES (%s, %s, %s, %s, %s)
+                        RETURNING id;
+                    """
+                    cursor.execute(query, (level, college, program_name, user_id, graduation_year))
+                
+                result_id = cursor.fetchone()[0]
                 conn.commit()
-                return cursor.fetchone()[0]
+                return result_id
     except Exception as e:
         print(f"ERROR: save_program failed - {str(e)}")
         raise
