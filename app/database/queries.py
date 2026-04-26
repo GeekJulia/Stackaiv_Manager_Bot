@@ -453,26 +453,37 @@ def get_program_info(program_id, include_user_id=False):
         with conn.cursor() as cursor:
             if include_user_id:
                 cursor.execute("""
-                    SELECT id, level, college, name, created_by
+                    SELECT id, level, college, name, created_by, is_active, graduation_year
                     FROM programs
                     WHERE id = %s
                 """, (program_id,))
             else:
                 cursor.execute("""
-                    SELECT id, level, college, name
+                    SELECT id, level, college, name, is_active, graduation_year
                     FROM programs
                     WHERE id = %s
                 """, (program_id,))
             r = cursor.fetchone()
             if r:
-                result = {
-                    "id": r[0],
-                    "level": r[1],
-                    "college": r[2],
-                    "program_name": r[3]
-                }
-                if include_user_id and len(r) > 4:
-                    result["user_id"] = r[4]
+                if include_user_id:
+                    result = {
+                        "id": r[0],
+                        "level": r[1],
+                        "college": r[2],
+                        "program_name": r[3],
+                        "user_id": r[4],
+                        "is_active": r[5],
+                        "graduation_year": r[6]
+                    }
+                else:
+                    result = {
+                        "id": r[0],
+                        "level": r[1],
+                        "college": r[2],
+                        "program_name": r[3],
+                        "is_active": r[4],
+                        "graduation_year": r[5]
+                    }
                 return result
             return None
 
