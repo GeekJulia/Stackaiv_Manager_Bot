@@ -648,7 +648,7 @@ def admin_handler(bot):
                     success = send_with_retry(
                         bot,
                         user['telegram_id'],
-                        f" *Announcement from Admin*\n\n{broadcast_text}"
+                        f" *Announcement from Stackaiv*\n\n{broadcast_text}"
                     )
                     if success:
                         sent_count += 1

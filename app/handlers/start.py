@@ -66,6 +66,7 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
         kb.add(InlineKeyboardButton(" 🔄 Reset Semester Data", callback_data="hub:reregister"))
 
     kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
+    kb.add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
     
     text = f" *{program['program_name']} {program['level']} Hub*\n"
     if program.get('graduation_year'):
@@ -375,21 +376,25 @@ def start_handler(bot):
                 )
 
         except DatabaseTimeoutError:
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
             edit_message_safe(
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
                 " *System is busy*\n\nPlease try again in a moment.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=kb
             )
         except Exception as e:
             print(f"ERROR processing registration: {e}")
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
             edit_message_safe(
                 bot,
                 call.message.chat.id,
                 loading_msg_id,
                 " An error occurred during registration. Please try again.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=kb
             )
 
     @bot.callback_query_handler(func=lambda call: call.data == "action:activate_hub")
@@ -470,10 +475,12 @@ def start_handler(bot):
                 )
             else:
                 error = pay_data.get('error', 'Initialization failed') if pay_data else 'Service unreachable'
-                edit_message_safe(bot, call.message.chat.id, loading_msg_id, f" ❌ Payment Error: {error}")
+                kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
+                edit_message_safe(bot, call.message.chat.id, loading_msg_id, f" ❌ Payment Error: {error}", reply_markup=kb)
         except Exception as e:
             print(f"ERROR activating hub: {e}")
-            edit_message_safe(bot, call.message.chat.id, loading_msg_id, " Failed to initialize payment.")
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
+            edit_message_safe(bot, call.message.chat.id, loading_msg_id, " Failed to initialize payment.", reply_markup=kb)
 
     @bot.message_handler(func=lambda m: user_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_courses")
     def collect_initial_courses(message):

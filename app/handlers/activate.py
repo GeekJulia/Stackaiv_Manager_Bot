@@ -45,6 +45,19 @@ def activation_handler(bot):
             # Check if already active
             is_active = get_program_activation_status(program_id)
             
+            # Auto-activate for the first 5 programs
+            if not is_active:
+                active_count = get_active_programs_count()
+                if active_count < 5:
+                    activate_program(program_id, is_paid=False)
+                    is_active = True
+                    bot.send_message(
+                        call.message.chat.id,
+                        " 🎉 *Congratulations!* 🎉\n\n"
+                        "Your program is one of the first 5 to register, so your hub has been *activated for FREE!*",
+                        parse_mode="Markdown"
+                    )
+
             if is_active:
                 # Get existing courses
                 courses = get_courses_by_program(program_id)
@@ -67,6 +80,7 @@ def activation_handler(bot):
                 kb.add(InlineKeyboardButton(" Add Courses", callback_data="notes:add_courses"))
                 kb.add(InlineKeyboardButton(" Resource Hub", callback_data="action:goto_space"))
                 kb.add(InlineKeyboardButton(" Back", callback_data="action:activate_program"))
+                kb.add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
                 
                 try:
                     bot.edit_message_text(
@@ -87,6 +101,7 @@ def activation_handler(bot):
             
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton(" Proceed with Payment", callback_data="activate:pay"))
+            kb.add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
             kb.add(InlineKeyboardButton(" Cancel Registration", callback_data="activate:cancel"))
             
             message_text = (
@@ -211,6 +226,7 @@ def activation_handler(bot):
                 kb = InlineKeyboardMarkup()
                 kb.add(InlineKeyboardButton(" Pay Now", url=auth_url))
                 kb.add(InlineKeyboardButton(" Payment Complete?", callback_data="activate:check_status"))
+                kb.add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
                 kb.add(InlineKeyboardButton(" Cancel", callback_data="activate:cancel"))
                 
                 bot.send_message(
@@ -229,18 +245,22 @@ def activation_handler(bot):
                 )
             else:
                 error_msg = result.get('error', 'Unknown error')
+                kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
                 bot.send_message(
                     message.chat.id,
                     f" *Payment Initialization Failed*\n\n{error_msg}",
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
+                    reply_markup=kb
                 )
                 activation_sessions.pop(user_id, None)
         
         except Exception as e:
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
             bot.send_message(
                 message.chat.id,
                 f" Error: {str(e)}",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=kb
             )
             activation_sessions.pop(user_id, None)
 
