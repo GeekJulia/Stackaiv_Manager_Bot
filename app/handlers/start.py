@@ -19,7 +19,8 @@ from ..database.queries import (
     get_users_by_program_id,
     promote_program,
     get_past_levels,
-    check_archive_access
+    check_archive_access,
+    get_active_programs_count
 )
 from ..utils.sessions import TTLDict, get_active_program_id
 from ..utils.db_operations import with_db_timeout, safe_db_operation, DatabaseTimeoutError
@@ -326,54 +327,97 @@ def start_handler(bot):
                     )
                 else:
                     # Hub exists but hasn't been paid for yet.
-                    # User is now linked — they'll be automatically notified whenever
-                    # anyone (including themselves) completes the activation payment.
-                    user_sessions[telegram_id] = {
-                        "program_id": program_id,
-                        "stage": "authenticated"
-                    }
-                    user_sessions[telegram_id]['pending_program'] = {
-                        "level": existing_program['level'],
-                        "college": existing_program['college'],
-                        "program_name": existing_program['program_name'],
-                        "grad_year": str(existing_program['graduation_year']),
-                        "saved_user_id": saved_user_id
-                    }
+                    # Check for free tier (first 5 programs)
+                    active_count = safe_db_operation(get_active_programs_count, 0)
+                    
+                    if active_count < 5:
+                        # Activate for free
+                        safe_db_operation(activate_program, False, program_id, is_paid=False)
+                        user_sessions[telegram_id] = {
+                            "program_id": program_id,
+                            "stage": "authenticated"
+                        }
+                        
+                        kb = InlineKeyboardMarkup(row_width=2)
+                        kb.add(InlineKeyboardButton(" Enter Hub", callback_data="hub:enter_own"))
+                        
+                        edit_message_safe(
+                            bot,
+                            call.message.chat.id,
+                            loading_msg_id,
+                            (
+                                " 🎉 *Congratulations!* 🎉\n\n"
+                                f"A hub for *{existing_program['program_name']}* exists and has been **activated for FREE** "
+                                "as part of our early-adopter program!\n\n"
+                                "You and your coursemates now have full access."
+                            ),
+                            reply_markup=kb,
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        # User is now linked — they'll be automatically notified whenever
+                        # anyone (including themselves) completes the activation payment.
+                        user_sessions[telegram_id] = {
+                            "program_id": program_id,
+                            "stage": "authenticated"
+                        }
+                        user_sessions[telegram_id]['pending_program'] = {
+                            "level": existing_program['level'],
+                            "college": existing_program['college'],
+                            "program_name": existing_program['program_name'],
+                            "grad_year": str(existing_program['graduation_year']),
+                            "saved_user_id": saved_user_id
+                        }
 
-                    kb = InlineKeyboardMarkup()
-                    kb.add(InlineKeyboardButton(" 💳 Activate Hub (\u20a63,000)", callback_data="action:activate_hub"))
+                        kb = InlineKeyboardMarkup()
+                        kb.add(InlineKeyboardButton(" 💳 Activate Hub (\u20a63,000)", callback_data="action:activate_hub"))
 
-                    edit_message_safe(
-                        bot,
-                        call.message.chat.id,
-                        loading_msg_id,
-                        (
-                            " ⚠️ *Hub Not Yet Active*\n\n"
-                            f"A hub for *{existing_program['program_name']}* exists but hasn't been activated yet.\n\n"
-                            "You've been added to the waitlist — you'll receive an automatic notification "
-                            "the moment anyone activates this hub.\n\n"
-                            "You can also activate it yourself now:"
-                        ),
-                        reply_markup=kb,
-                        parse_mode="Markdown"
-                    )
+                        edit_message_safe(
+                            bot,
+                            call.message.chat.id,
+                            loading_msg_id,
+                            (
+                                " ⚠️ *Hub Not Yet Active*\n\n"
+                                f"A hub for *{existing_program['program_name']}* exists but hasn't been activated yet.\n\n"
+                                "You've been added to the waitlist — you'll receive an automatic notification "
+                                "the moment anyone activates this hub.\n\n"
+                                "You can also activate it yourself now:"
+                            ),
+                            reply_markup=kb,
+                            parse_mode="Markdown"
+                        )
             else:
-                # Program doesn't exist. Prepare activation.
+                # Program doesn't exist. Check for free tier.
                 user_sessions[telegram_id]['pending_program'] = {
                     "level": level, "college": college, "program_name": program_name, "grad_year": grad_year, "saved_user_id": saved_user_id
                 }
 
-                kb = InlineKeyboardMarkup()
-                kb.add(InlineKeyboardButton(" Activate", callback_data="action:activate_hub"))
-                
-                edit_message_safe(
-                    bot,
-                    call.message.chat.id,
-                    loading_msg_id,
-                    " Welcome! This program does not have a hub yet. Please proceed to activate it.",
-                    reply_markup=kb,
-                    parse_mode="Markdown"
-                )
+                active_count = safe_db_operation(get_active_programs_count, 0)
+                if active_count < 5:
+                    kb = InlineKeyboardMarkup()
+                    kb.add(InlineKeyboardButton(" 🚀 Activate for FREE", callback_data="action:activate_hub"))
+                    
+                    edit_message_safe(
+                        bot,
+                        call.message.chat.id,
+                        loading_msg_id,
+                        " Welcome! This program does not have a hub yet.\n\n"
+                        "🎁 *Early Adopter Bonus:* You are eligible to activate this hub for **FREE**!",
+                        reply_markup=kb,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    kb = InlineKeyboardMarkup()
+                    kb.add(InlineKeyboardButton(" Activate", callback_data="action:activate_hub"))
+                    
+                    edit_message_safe(
+                        bot,
+                        call.message.chat.id,
+                        loading_msg_id,
+                        " Welcome! This program does not have a hub yet. Please proceed to activate it.",
+                        reply_markup=kb,
+                        parse_mode="Markdown"
+                    )
 
         except DatabaseTimeoutError:
             kb = InlineKeyboardMarkup().add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
@@ -435,6 +479,31 @@ def start_handler(bot):
             # when the webhook fires, regardless of whether they are the original
             # creator or a second user who chose to pay for someone else's pending hub.
             safe_db_operation(link_user_to_program, False, telegram_id, program_id)
+
+            # Check for free tier
+            active_count = safe_db_operation(get_active_programs_count, 0)
+            if active_count < 5:
+                # Activate for free
+                safe_db_operation(activate_program, False, program_id, is_paid=False)
+                
+                # Update session
+                user_sessions[telegram_id]['stage'] = "authenticated"
+                user_sessions[telegram_id]['program_id'] = program_id
+                
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton(" Enter Hub", callback_data="hub:enter_own"))
+                
+                edit_message_safe(
+                    bot,
+                    call.message.chat.id,
+                    loading_msg_id,
+                    " 🎉 *Hub Activated for FREE!* 🎉\n\n"
+                    f"Your **{program_name}** hub has been activated as one of our first 5 hubs!\n\n"
+                    "Tap below to get started.",
+                    reply_markup=kb,
+                    parse_mode="Markdown"
+                )
+                return
 
             # Generate Payment Link (₦3,000)
             ref = generate_payment_reference(telegram_id, program_id, 'ACT')

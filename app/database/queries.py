@@ -1085,12 +1085,6 @@ def get_admin_messages_count():
             cursor.execute("SELECT COUNT(*) FROM admin_messages WHERE handled = FALSE")
             return cursor.fetchone()[0]
 
-def count_active_programs():
-    """Count the number of programs with is_active = TRUE"""
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM programs WHERE is_active = TRUE")
-            return cursor.fetchone()[0]
 
 def promote_program(program_id):
     """Bumps up the active level sequence of a program by 100 dynamically"""
