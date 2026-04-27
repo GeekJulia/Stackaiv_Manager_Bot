@@ -191,7 +191,7 @@ def start_handler(bot):
                 " Welcome to Stackaiv!\n\n"
                 "To get started, please reply with your details in this exact format:\n\n"
                 "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
-                "⚠️ <b>Your Program name should be in full.  (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). \n\n"
+                "⚠️ <b>Your Program name should be in full. (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). </b>\n\n"
                 "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>"
             )
             
@@ -280,7 +280,7 @@ def start_handler(bot):
             message_id=call.message.message_id, 
             text="Registration cancelled. Please send your details again:\n\n"
                  "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
-                 "⚠️ <b>Your Program name should be in full.  (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). \n\n"
+                 "⚠️ <b>Your Program name should be in full. (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). </b>\n\n"
                  "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>",
             parse_mode="HTML"
         )
@@ -622,9 +622,9 @@ def start_handler(bot):
         
         try:
             safe_db_operation(save_courses, None, program_id, courses)
-            user_sessions[user_id]["stage"] = "authenticated"
+            user_sessions[telegram_id]["stage"] = "authenticated"
             program = safe_db_operation(get_program_info, None, program_id)
-            handle_hub_access(bot, message.chat.id, program, user_id, message_id=loading_msg_id)
+            handle_hub_access(bot, message.chat.id, program, telegram_id, message_id=loading_msg_id)
         except Exception as e:
             edit_message_safe(bot, message.chat.id, loading_msg_id, " Could not save courses. Try again.", parse_mode="Markdown")
 
@@ -802,7 +802,7 @@ def start_handler(bot):
             message_id=call.message.message_id,
             text=" 📝 <b>Re-register Your Details</b>\n\nPlease send your details again in the following format separated by commas (`,`):\n\n"
                  "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
-                 "⚠️ <b>Your Program name should be in full.  (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). \n\n"
+                 "⚠️ <b>Your Program name should be in full. (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). </b>\n\n"
                  "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>",
             parse_mode="HTML"
         )

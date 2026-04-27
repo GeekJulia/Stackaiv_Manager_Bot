@@ -8,7 +8,8 @@ from ..database.queries import (
     activate_program,
     save_archive_subscription,
     get_users_by_program_id,
-    get_program_info
+    get_program_info,
+    get_course_info
 )
 
 # Load .env from project root
