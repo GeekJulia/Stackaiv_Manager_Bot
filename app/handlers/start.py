@@ -191,7 +191,7 @@ def start_handler(bot):
                 " Welcome to Stackaiv!\n\n"
                 "To get started, please reply with your details in this exact format:\n\n"
                 "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
-                "⚠️ <b>IMPORTANT: YOUR PROGRAM NAME MUST BE IN FULL (e.g., \"COMPUTER SCIENCE\", NOT \"CS\" OR \"CompSci\"). FAILURE TO DO SO MAY RESULT IN PAYING FOR AN UNRECOGNIZED PROGRAM!</b> ⚠️\n\n"
+                "⚠️ <b>Your Program name should be in full.  (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). \n\n"
                 "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>"
             )
             
@@ -280,7 +280,7 @@ def start_handler(bot):
             message_id=call.message.message_id, 
             text="Registration cancelled. Please send your details again:\n\n"
                  "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
-                 "⚠️ <b>IMPORTANT: YOUR PROGRAM NAME MUST BE IN FULL (e.g., \"COMPUTER SCIENCE\", NOT \"CS\" OR \"CompSci\"). FAILURE TO DO SO MAY RESULT IN PAYING FOR AN UNRECOGNIZED PROGRAM!</b> ⚠️\n\n"
+                 "⚠️ <b>Your Program name should be in full.  (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). \n\n"
                  "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>",
             parse_mode="HTML"
         )
@@ -802,7 +802,7 @@ def start_handler(bot):
             message_id=call.message.message_id,
             text=" 📝 <b>Re-register Your Details</b>\n\nPlease send your details again in the following format separated by commas (`,`):\n\n"
                  "<b>Name, Program, Level, Grad Year, College, Career</b>\n\n"
-                 "⚠️ <b>IMPORTANT: YOUR PROGRAM NAME MUST BE IN FULL (e.g., \"COMPUTER SCIENCE\", NOT \"CS\" OR \"CompSci\"). FAILURE TO DO SO MAY RESULT IN PAYING FOR AN UNRECOGNIZED PROGRAM!</b> ⚠️\n\n"
+                 "⚠️ <b>Your Program name should be in full.  (e.g., \"COMPUTER SCIENCE\", not \"CS\" or \"CompSci\"). \n\n"
                  "<i>Example: <code>Julia, Computer Science, 400, 2026, CST, Developer</code></i>",
             parse_mode="HTML"
         )
