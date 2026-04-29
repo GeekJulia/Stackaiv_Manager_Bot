@@ -18,8 +18,11 @@ from ..database.queries import (
     get_resource_type_info,
     check_duplicate_resource,
     get_program_info,
-    check_archive_access
+    check_archive_access,
+    delete_resource,
+    get_program_creator
 )
+import os
 
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict, get_active_program_id
@@ -717,8 +720,6 @@ def files_handler(bot):
     # -------------------------
     # GET RESOURCE → SLOT SYSTEM
     # -------------------------
-# In files.py, modify the list_slots function:
-
     @bot.callback_query_handler(func=lambda call: call.data.startswith("get:type:"))
     def list_slots(call):
         user_id = call.from_user.id
@@ -738,21 +739,25 @@ def files_handler(bot):
         )
 
         # Build text exactly like groups.py does
+        session["resources"] = resources
+
+        # Build text exactly like groups.py does
         text = " *Available Resources*\n\n"
         
         if resources:
             for i, r in enumerate(resources, start=1):
                 # Use backticks for filenames like groups.py does
                 text += f"{i}. `{r['file_name']}`\n"
+            
+            text += "\n\n *How to download:*\n"
+            text += "• Send: `Slot 1`\n"
+            text += "• Send: `Slot 1, Slot 2` for multiple\n"
+            text += "• Send: `All` for everything\n\n"
+            text += " *Management:*\n"
+            text += "• Send: `Delete Slot 1` to remove file\n"
+            text += "  _(Only uploader or hub creator can delete)_"
         else:
             text += "No resources available.\n"
-        
-        text += (
-            "\n\n *How to download:*\n"
-            "• Send: `Slot 1`\n"
-            "• Send: `Slot 1, Slot 2, Slot 3` (comma-separated)\n"
-            "• Send: `All` for everything"
-        )
 
         session["resources"] = resources
 
@@ -789,7 +794,7 @@ def files_handler(bot):
     # -------------------------
     # SEND SLOT NUMBER
     # -------------------------
-    @bot.message_handler(func=lambda m: m.text and ( m.text.lower() == "all" or m.text.lower().startswith("slot")))
+    @bot.message_handler(func=lambda m: m.text and (m.text.lower() == "all" or m.text.lower().startswith("slot") or m.text.lower().startswith("delete slot")))
     def send_resource(message):
         user_id = message.from_user.id
         session = file_sessions.get(user_id)
@@ -799,6 +804,46 @@ def files_handler(bot):
 
         text = message.text.lower().strip()
         resources = session["resources"]
+
+        # -------------------------
+        # DELETE SLOT
+        # -------------------------
+        if text.startswith("delete slot"):
+            try:
+                slot_num = int(text.replace("delete slot", "").strip())
+                idx = slot_num - 1
+                
+                if 0 <= idx < len(resources):
+                    resource = resources[idx]
+                    resource_id = resource['id']
+                    uploader_id = resource['uploader_id']
+                    
+                    # Permission Check
+                    is_admin = str(user_id) == str(os.getenv("ADMIN_ID"))
+                    
+                    # Check Hub Creator
+                    program_id = get_active_program_id(user_id)
+                    creator = safe_db_operation(get_program_creator, None, program_id)
+                    is_creator = creator and creator['telegram_id'] == user_id
+                    
+                    if user_id == uploader_id or is_admin or is_creator:
+                        if safe_db_operation(delete_resource, False, resource_id):
+                            bot.reply_to(message, f" ✅ Resource `{resource['file_name']}` has been deleted.")
+                            # Update session resources
+                            resources.pop(idx)
+                            session["resources"] = resources
+                        else:
+                            bot.reply_to(message, " ❌ Failed to delete resource.")
+                    else:
+                        bot.reply_to(message, " ⚠️ You don't have permission to delete this resource.")
+                else:
+                    bot.reply_to(message, " ❌ Invalid slot number.")
+                return
+            except ValueError:
+                pass # Fall through to other handlers if it's not a valid number
+            except Exception as e:
+                print(f"Error in handle_delete_resource: {e}")
+                return
 
         # -------------------------
         # ALL

@@ -359,12 +359,12 @@ def get_resources_by_course_and_type(course_id, resource_type_id):
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT file_id, file_name
+                SELECT id, file_id, file_name, uploader_id
                 FROM resources
                 WHERE course_id = %s AND resource_type_id = %s
                 ORDER BY created_at
             """, (course_id, resource_type_id))
-            return [{"file_id": r[0], "file_name": r[1]} for r in cursor.fetchall()]
+            return [{"id": r[0], "file_id": r[1], "file_name": r[2], "uploader_id": r[3]} for r in cursor.fetchall()]
 
 def get_all_resources_by_course(course_id):
     with pool.connection() as conn:
@@ -1001,6 +1001,18 @@ def save_resource_with_type_check(course_id, resource_type_id, file_id, file_nam
             conn.commit()
             result = cursor.fetchone()
             return result[0] if result else None
+
+def delete_resource(resource_id):
+    """Delete a specific resource by its ID"""
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM resources WHERE id = %s", (resource_id,))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"ERROR: delete_resource failed - {str(e)}")
+        return False
 
 # -------------------------
 # Admin Messages Management
