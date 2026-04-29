@@ -35,6 +35,27 @@ def ensure_schema():
                 # Evolution of payments table
                 cur.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'hub_activation';")
                 cur.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS metadata JSONB;")
+
+                # Fix approvals foreign key constraint to cascade on delete
+                cur.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                                   WHERE constraint_name = 'approvals_resource_id_fkey' 
+                                   AND table_name = 'approvals') THEN
+                            ALTER TABLE approvals DROP CONSTRAINT approvals_resource_id_fkey;
+                        END IF;
+                    END $$;
+                """)
+                cur.execute("""
+                    ALTER TABLE approvals 
+                    DROP CONSTRAINT IF EXISTS approvals_resource_id_fkey_cascade;
+                """)
+                cur.execute("""
+                    ALTER TABLE approvals 
+                    ADD CONSTRAINT approvals_resource_id_fkey_cascade 
+                    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE;
+                """)
                 conn.commit()
     except Exception as e:
         print(f"Schema migration error (ignored): {e}")
@@ -1007,6 +1028,9 @@ def delete_resource(resource_id):
     try:
         with pool.connection() as conn:
             with conn.cursor() as cursor:
+                # Delete related approvals first (redundant if migration above runs, but good for safety)
+                cursor.execute("DELETE FROM approvals WHERE resource_id = %s", (resource_id,))
+                # Now delete the resource
                 cursor.execute("DELETE FROM resources WHERE id = %s", (resource_id,))
                 conn.commit()
                 return True
