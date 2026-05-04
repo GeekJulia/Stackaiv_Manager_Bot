@@ -47,15 +47,16 @@ def show_program_hub_panel(bot, chat_id, program, message_id=None, extra_text=""
     other_semester = 'Omega' if current_semester == 'Alpha' else 'Alpha'
     
     kb = InlineKeyboardMarkup(row_width=2)
+    
+    # Semester Toggle Button (Moved to top)
+    kb.add(InlineKeyboardButton(f"🔄 Switch to {other_semester.upper()} Semester", callback_data=f"hub:toggle_semester:{other_semester}"))
+    
     kb.add(
         InlineKeyboardButton(" All Courses", callback_data="hub:courses"),
         InlineKeyboardButton(" Add Resource", callback_data="hub:add"),
         InlineKeyboardButton(" Get Resource", callback_data="hub:get"),
         InlineKeyboardButton(" Help Info", callback_data="hub:help"),
     )
-    
-    # Semester Toggle Button
-    kb.add(InlineKeyboardButton(f"🔄 Switch to {other_semester.upper()} Semester", callback_data=f"hub:toggle_semester:{other_semester}"))
     
     # New Archive and Promote Buttons
     kb.add(InlineKeyboardButton(" 🗄 Past Level Archives", callback_data="hub:archives"))
