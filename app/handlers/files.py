@@ -11,7 +11,6 @@ from ..database.queries import (
     get_resources_by_course_and_type,
     get_all_resources_by_course,
     get_course_info,
-    check_duplicate_resource_by_type,
     save_resource_with_type_check,
     save_admin_message,
     get_course_info,
@@ -470,7 +469,7 @@ def files_handler(bot):
             fname = escape_html(f['file_name'])
             
             # Check for duplicate
-            is_dup = safe_db_operation(check_duplicate_resource, False, course_id, type_id, f['file_name'])
+            is_dup = safe_db_operation(check_duplicate_resource, False, course_id, type_id, f['file_name'], file_unique_id=f.get('file_unique_id'))
             dup_label = " ⚠️ <i>(Existing - will be skipped)</i>" if is_dup else ""
             
             file_list += f"{i}. <code>{fname}</code>{dup_label}\n"

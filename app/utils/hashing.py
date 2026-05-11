@@ -28,5 +28,5 @@ def calculate_file_hash(bot, file_id):
         
         return sha256_hash.hexdigest()
     except Exception as e:
-        print(f"ERROR: calculate_file_hash failed - {str(e)}")
+        print(f"ERROR: calculate_file_hash failed for file_id {file_id} - {str(e)}")
         return None

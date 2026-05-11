@@ -623,23 +623,27 @@ def check_duplicate_resource(course_id, resource_type_id, file_name, file_unique
     """Check if a resource with the same filename or content already exists"""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
-            # First check for exact content matches if identifiers are provided
-            if file_unique_id or content_hash:
-                query = "SELECT COUNT(*) FROM resources WHERE (file_unique_id = %s"
-                params = [file_unique_id]
+            # 1. First check for exact content matches if identifiers are provided
+            # We check by file_unique_id or content_hash
+            content_conditions = []
+            content_params = []
+            
+            if file_unique_id:
+                content_conditions.append("file_unique_id = %s")
+                content_params.append(file_unique_id)
+            if content_hash:
+                content_conditions.append("content_hash = %s")
+                content_params.append(content_hash)
                 
-                if content_hash:
-                    query += " OR content_hash = %s"
-                    params.append(content_hash)
+            if content_conditions:
+                query = f"SELECT COUNT(*) FROM resources WHERE ({' OR '.join(content_conditions)}) AND course_id = %s"
+                content_params.append(course_id)
                 
-                query += ") AND course_id = %s"
-                params.append(course_id)
-                
-                cursor.execute(query, params)
+                cursor.execute(query, content_params)
                 if cursor.fetchone()[0] > 0:
                     return True
 
-            # Fallback to filename check
+            # 2. Fallback to filename check within the same course and resource type
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM resources
@@ -993,40 +997,6 @@ def get_resource_type_by_name(resource_type_name):
             r = cursor.fetchone()
             return r[0] if r else None
 
-def should_check_duplicate(resource_type_id):
-    """Determine if a resource type requires duplicate checking"""
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT name FROM resource_types WHERE id = %s
-            """, (resource_type_id,))
-            r = cursor.fetchone()
-            if r:
-                type_name = r[0].lower()
-                # Check if this resource type requires duplicate checking
-                return type_name in ['notes', 'textbooks', 'video files', 'videos']
-            return False
-
-def check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
-    """Check for duplicate resources based on resource type"""
-    should_check = should_check_duplicate(resource_type_id)
-    
-    if not should_check:
-        # No duplicate check needed for this resource type
-        return False
-    
-    # Perform duplicate check
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT 1
-                FROM resources r
-                JOIN courses c ON r.course_id = c.id
-                WHERE r.course_id = %s 
-                  AND r.resource_type_id = %s 
-                  AND LOWER(r.file_name) = LOWER(%s)
-            """, (course_id, resource_type_id, file_name))
-            return cursor.fetchone() is not None
 
 def save_resource_with_type_check(course_id, resource_type_id, file_id, file_name, uploader_id, file_unique_id=None, content_hash=None):
     """Save resource with proper duplicate checking based on type and content"""
