@@ -56,6 +56,13 @@ def ensure_schema():
                     ADD CONSTRAINT approvals_resource_id_fkey_cascade 
                     FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE;
                 """)
+
+                # Content-based similarity columns
+                cur.execute("ALTER TABLE resources ADD COLUMN IF NOT EXISTS file_unique_id VARCHAR(100);")
+                cur.execute("ALTER TABLE resources ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_resources_file_unique_id ON resources(file_unique_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_resources_content_hash ON resources(content_hash);")
+
                 conn.commit()
     except Exception as e:
         print(f"Schema migration error (ignored): {e}")
@@ -362,15 +369,15 @@ def get_courses_by_program(program_id, academic_level=None, semester=None):
             return [{"id": r[0], "course_code": r[1], "semester": r[2]} for r in cursor.fetchall()]
 
 
-def save_resource(course_id, resource_type_id, file_id, file_name, uploader_id):
+def save_resource(course_id, resource_type_id, file_id, file_name, uploader_id, file_unique_id=None, content_hash=None):
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""
-                INSERT INTO resources (course_id, resource_type_id, file_id, file_name, uploader_id)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO resources (course_id, resource_type_id, file_id, file_name, uploader_id, file_unique_id, content_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (file_id) DO NOTHING
                 RETURNING id
-            """, (course_id, resource_type_id, file_id, file_name, uploader_id))
+            """, (course_id, resource_type_id, file_id, file_name, uploader_id, file_unique_id, content_hash))
             conn.commit()
             result = cursor.fetchone()
             return result[0] if result else None
@@ -612,10 +619,27 @@ def get_group_program_id(telegram_chat_id):
             result = cursor.fetchone()
             return result[0] if result else None
 
-def check_duplicate_resource(course_id, resource_type_id, file_name):
-    """Check if a resource with the same filename already exists"""
+def check_duplicate_resource(course_id, resource_type_id, file_name, file_unique_id=None, content_hash=None):
+    """Check if a resource with the same filename or content already exists"""
     with pool.connection() as conn:
         with conn.cursor() as cursor:
+            # First check for exact content matches if identifiers are provided
+            if file_unique_id or content_hash:
+                query = "SELECT COUNT(*) FROM resources WHERE (file_unique_id = %s"
+                params = [file_unique_id]
+                
+                if content_hash:
+                    query += " OR content_hash = %s"
+                    params.append(content_hash)
+                
+                query += ") AND course_id = %s"
+                params.append(course_id)
+                
+                cursor.execute(query, params)
+                if cursor.fetchone()[0] > 0:
+                    return True
+
+            # Fallback to filename check
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM resources
@@ -1004,24 +1028,15 @@ def check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
             """, (course_id, resource_type_id, file_name))
             return cursor.fetchone() is not None
 
-def save_resource_with_type_check(course_id, resource_type_id, file_id, file_name, uploader_id):
-    """Save resource with proper duplicate checking based on type"""
+def save_resource_with_type_check(course_id, resource_type_id, file_id, file_name, uploader_id, file_unique_id=None, content_hash=None):
+    """Save resource with proper duplicate checking based on type and content"""
     # Check if duplicate checking is needed for this resource type
-    if check_duplicate_resource_by_type(course_id, resource_type_id, file_name):
+    # We pass the content identifiers to the check function
+    if check_duplicate_resource(course_id, resource_type_id, file_name, file_unique_id, content_hash):
         return None  # Duplicate found
     
     # Save resource
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO resources (course_id, resource_type_id, file_id, file_name, uploader_id)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (file_id) DO NOTHING
-                RETURNING id
-            """, (course_id, resource_type_id, file_id, file_name, uploader_id))
-            conn.commit()
-            result = cursor.fetchone()
-            return result[0] if result else None
+    return save_resource(course_id, resource_type_id, file_id, file_name, uploader_id, file_unique_id, content_hash)
 
 def delete_resource(resource_id):
     """Delete a specific resource by its ID"""

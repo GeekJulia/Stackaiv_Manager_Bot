@@ -19,6 +19,7 @@ from ..database.queries import (
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict
 from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe, escape_html
+from ..utils.hashing import calculate_file_hash
 group_sessions = TTLDict()
 # Sessions are keyed by f"{chat_id}_{message_id}" to support concurrent uploads
 
@@ -363,6 +364,7 @@ def groups_handler(bot):
         
         batch_queues[chat_id].append({
             "file_id": file_id,
+            "file_unique_id": doc.file_unique_id,
             "file_name": filename,
             "uploader_id": message.from_user.id,
             "course_code": course_code,
@@ -924,13 +926,31 @@ def groups_handler(bot):
                 continue
 
             try:
+                file_unique_id = file_data.get('file_unique_id')
+                content_hash = None
+                
+                # 1. Quick check using file_unique_id
                 is_duplicate = safe_db_operation(
                     check_duplicate_resource,
                     False,
                     cid,
                     rtid,
-                    file_data['file_name']
+                    file_data['file_name'],
+                    file_unique_id=file_unique_id
                 )
+                
+                # 2. If not a duplicate by unique_id, download and check by content hash
+                if not is_duplicate:
+                    content_hash = calculate_file_hash(bot, file_data['file_id'])
+                    if content_hash:
+                        is_duplicate = safe_db_operation(
+                            check_duplicate_resource,
+                            False,
+                            cid,
+                            rtid,
+                            file_data['file_name'],
+                            content_hash=content_hash
+                        )
                 
                 if is_duplicate:
                     duplicate_count += 1
@@ -943,7 +963,9 @@ def groups_handler(bot):
                     resource_type_id=rtid,
                     file_id=file_data['file_id'],
                     file_name=file_data['file_name'],
-                    uploader_id=file_data['uploader_id']
+                    uploader_id=file_data['uploader_id'],
+                    file_unique_id=file_unique_id,
+                    content_hash=content_hash
                 )
                 
                 if resource_id:
@@ -1044,13 +1066,20 @@ def groups_handler(bot):
         file_id_session = session["file_id"]
         uploader_id = session["uploader_id"]
         
-        # Check for duplicate
-        is_duplicate = check_duplicate_resource(course_id, resource_type_id, file_name)
+        # Capture content identifiers
+        file_unique_id = session.get("file_unique_id")
+        content_hash = calculate_file_hash(bot, file_id_session)
+
+        # Check for duplicate with content identifiers
+        is_duplicate = check_duplicate_resource(
+            course_id, resource_type_id, file_name,
+            file_unique_id=file_unique_id, content_hash=content_hash
+        )
         
         if is_duplicate:
             msg = bot.send_message(
                 chat_id,
-                "Already Added",
+                "Already Added (Content Duplicate)",
                 parse_mode="Markdown"
             )
             schedule_delete(chat_id, msg.message_id, 5.0)
@@ -1061,7 +1090,9 @@ def groups_handler(bot):
                 resource_type_id=resource_type_id,
                 file_id=file_id_session,
                 file_name=file_name,
-                uploader_id=uploader_id
+                uploader_id=uploader_id,
+                file_unique_id=file_unique_id,
+                content_hash=content_hash
             )
             
             # Save approval

@@ -26,6 +26,7 @@ import os
 
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict, get_active_program_id
+from ..utils.hashing import calculate_file_hash
 
 file_sessions = TTLDict()
 
@@ -423,6 +424,7 @@ def files_handler(bot):
         
         file_batch_queues[user_id].append({
             "file_id": doc.file_id,
+            "file_unique_id": doc.file_unique_id,
             "file_name": file_name,
             "course_id": course_id,
             "resource_type_id": resource_type_id,
@@ -935,13 +937,31 @@ def files_handler(bot):
         
         for file_data in queue:
             try:
+                file_unique_id = file_data.get('file_unique_id')
+                content_hash = None
+                
+                # 1. Quick check using file_unique_id (exact same file known to Telegram)
                 is_duplicate = safe_db_operation(
                     check_duplicate_resource,
                     False,
                     file_data['course_id'],
                     file_data['resource_type_id'],
-                    file_data['file_name']
+                    file_data['file_name'],
+                    file_unique_id=file_unique_id
                 )
+                
+                # 2. If not a duplicate by unique_id, download and check by content hash
+                if not is_duplicate:
+                    content_hash = calculate_file_hash(bot, file_data['file_id'])
+                    if content_hash:
+                        is_duplicate = safe_db_operation(
+                            check_duplicate_resource,
+                            False,
+                            file_data['course_id'],
+                            file_data['resource_type_id'],
+                            file_data['file_name'],
+                            content_hash=content_hash
+                        )
                 
                 if is_duplicate:
                     duplicate_count += 1
@@ -954,7 +974,9 @@ def files_handler(bot):
                     resource_type_id=file_data['resource_type_id'],
                     file_id=file_data['file_id'],
                     file_name=file_data['file_name'],
-                    uploader_id=user_id
+                    uploader_id=user_id,
+                    file_unique_id=file_unique_id,
+                    content_hash=content_hash
                 )
                 
                 if resource_id:
