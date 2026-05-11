@@ -11,6 +11,7 @@ from ..database.queries import (
     get_resources_by_course_and_type,
     get_all_resources_by_course,
     get_course_info,
+    check_duplicate_resource_by_type,
     save_resource_with_type_check,
     save_admin_message,
     get_course_info,
@@ -25,7 +26,6 @@ import os
 
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict, get_active_program_id
-from ..utils.hashing import calculate_file_hash
 
 file_sessions = TTLDict()
 
@@ -423,7 +423,6 @@ def files_handler(bot):
         
         file_batch_queues[user_id].append({
             "file_id": doc.file_id,
-            "file_unique_id": doc.file_unique_id,
             "file_name": file_name,
             "course_id": course_id,
             "resource_type_id": resource_type_id,
@@ -469,7 +468,7 @@ def files_handler(bot):
             fname = escape_html(f['file_name'])
             
             # Check for duplicate
-            is_dup = safe_db_operation(check_duplicate_resource, False, course_id, type_id, f['file_name'], file_unique_id=f.get('file_unique_id'))
+            is_dup = safe_db_operation(check_duplicate_resource, False, course_id, type_id, f['file_name'])
             dup_label = " ⚠️ <i>(Existing - will be skipped)</i>" if is_dup else ""
             
             file_list += f"{i}. <code>{fname}</code>{dup_label}\n"
@@ -936,31 +935,13 @@ def files_handler(bot):
         
         for file_data in queue:
             try:
-                file_unique_id = file_data.get('file_unique_id')
-                content_hash = None
-                
-                # 1. Quick check using file_unique_id (exact same file known to Telegram)
                 is_duplicate = safe_db_operation(
                     check_duplicate_resource,
                     False,
                     file_data['course_id'],
                     file_data['resource_type_id'],
-                    file_data['file_name'],
-                    file_unique_id=file_unique_id
+                    file_data['file_name']
                 )
-                
-                # 2. If not a duplicate by unique_id, download and check by content hash
-                if not is_duplicate:
-                    content_hash = calculate_file_hash(bot, file_data['file_id'])
-                    if content_hash:
-                        is_duplicate = safe_db_operation(
-                            check_duplicate_resource,
-                            False,
-                            file_data['course_id'],
-                            file_data['resource_type_id'],
-                            file_data['file_name'],
-                            content_hash=content_hash
-                        )
                 
                 if is_duplicate:
                     duplicate_count += 1
@@ -973,9 +954,7 @@ def files_handler(bot):
                     resource_type_id=file_data['resource_type_id'],
                     file_id=file_data['file_id'],
                     file_name=file_data['file_name'],
-                    uploader_id=user_id,
-                    file_unique_id=file_unique_id,
-                    content_hash=content_hash
+                    uploader_id=user_id
                 )
                 
                 if resource_id:
