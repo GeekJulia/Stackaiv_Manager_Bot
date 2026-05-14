@@ -223,12 +223,17 @@ def files_handler(bot):
                 for c in courses:
                     text += f"• {c['course_code']}\n"
                 
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
+                
                 edit_message_safe(
                     bot,
                     call.message.chat.id,
                     loading_msg_id,
                     text,
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
+                    reply_markup=kb
                 )
             else:
                 text = f" *No courses registered for {current_semester} semester yet.*"
