@@ -5,11 +5,16 @@ from ..database.queries import (
     save_courses,
     get_courses_by_program,
     get_resource_types,
-    save_course_resource_types
+    save_course_resource_types,
+    update_course_code,
+    get_course_info,
+    get_program_creator
 )
 from ..utils.db_operations import safe_db_operation, DatabaseTimeoutError
 from ..utils.sessions import TTLDict, get_active_program_id
-from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe
+from ..utils.messages import send_loading_message, safe_edit_or_send as edit_message_safe, escape_markdown
+from ..utils.keyboards import build_course_keyboard
+import os
 
 notes_sessions = TTLDict()
 
@@ -336,3 +341,151 @@ def notes_handler(bot):
                 parse_mode="Markdown",
                 reply_markup=kb
             )
+
+    # -------------------------
+    # Edit Course - List Courses
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "notes:edit_course")
+    def edit_course_start(call):
+        user_id = call.from_user.id
+        program_id = get_active_program_id(user_id)
+        
+        # Check Hub Creator/Admin
+        is_admin = str(user_id) == str(os.getenv("ADMIN_ID"))
+        creator = safe_db_operation(get_program_creator, None, program_id)
+        is_creator = creator and creator['telegram_id'] == user_id
+        
+        if not (is_admin or is_creator):
+            bot.answer_callback_query(call.id, "Unauthorized. Only the hub creator or admin can edit courses.", show_alert=True)
+            return
+            
+        loading_msg_id = send_loading_message(bot, call.message.chat.id, " *Loading courses...*")
+        
+        try:
+            courses = []
+            if program_id:
+                from .start import user_sessions
+                session = user_sessions.get(user_id, {})
+                current_semester = session.get('active_semester', 'Alpha')
+                courses = safe_db_operation(get_courses_by_program, [], program_id, semester=current_semester)
+            
+            if not courses:
+                kb = InlineKeyboardMarkup()
+                kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
+                edit_message_safe(bot, call.message.chat.id, loading_msg_id, " No courses found.", parse_mode="Markdown", reply_markup=kb)
+                return
+                
+            kb = build_course_keyboard(courses, callback_prefix="edit_course:select")
+            kb.add(InlineKeyboardButton("⬅️ Back", callback_data="hub:courses"))
+            
+            edit_message_safe(
+                bot, call.message.chat.id, loading_msg_id,
+                " *Select a course to edit its code:*",
+                parse_mode="Markdown", reply_markup=kb
+            )
+        except Exception as e:
+            edit_message_safe(bot, call.message.chat.id, loading_msg_id, f" Error: {str(e)}", parse_mode="Markdown")
+
+    # -------------------------
+    # Edit Course - Select Course
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("edit_course:select:"))
+    def edit_course_select(call):
+        user_id = call.from_user.id
+        course_id = int(call.data.split(":")[2])
+        
+        course = safe_db_operation(get_course_info, None, course_id)
+        if not course:
+            bot.answer_callback_query(call.id, "Course not found.", show_alert=True)
+            return
+            
+        notes_sessions[user_id] = {
+            "stage": "awaiting_new_course_code",
+            "course_id": course_id,
+            "old_course_code": course['course_code']
+        }
+        
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton(" Cancel", callback_data="notes:edit_course"))
+        
+        edit_message_safe(
+            bot, call.message.chat.id, call.message.message_id,
+            f" *Edit Course Code*\n\n"
+            f"Current Code: `{course['course_code']}`\n\n"
+            f"Please reply with the new course code.",
+            parse_mode="Markdown", reply_markup=kb
+        )
+
+    # -------------------------
+    # Edit Course - Receive New Code
+    # -------------------------
+    @bot.message_handler(func=lambda m: notes_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_new_course_code")
+    def edit_course_receive_new_code(message):
+        user_id = message.from_user.id
+        session = notes_sessions.get(user_id)
+        new_code = message.text.strip().upper()
+        
+        if not new_code or len(new_code) > 20:
+            bot.reply_to(message, "Invalid course code. Please try again.")
+            return
+            
+        session["new_course_code"] = new_code
+        session["stage"] = "confirming_edit_course"
+        
+        old_code = session["old_course_code"]
+        
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton(" ✅ Confirm", callback_data="edit_course:confirm_yes"))
+        kb.add(InlineKeyboardButton(" ❌ Cancel", callback_data="notes:edit_course"))
+        
+        bot.send_message(
+            message.chat.id,
+            f" *Confirm Course Edit*\n\n"
+            f"Are you sure you want to change `{old_code}` to `{new_code}`?\n\n"
+            f"⚠️ _Note: All resources saved for this course will remain unchanged._",
+            parse_mode="Markdown", reply_markup=kb
+        )
+
+    # -------------------------
+    # Edit Course - Confirm Yes
+    # -------------------------
+    @bot.callback_query_handler(func=lambda call: call.data == "edit_course:confirm_yes")
+    def edit_course_confirm_yes(call):
+        user_id = call.from_user.id
+        session = notes_sessions.get(user_id)
+        
+        if not session or session.get("stage") != "confirming_edit_course":
+            bot.answer_callback_query(call.id, "Session expired.", show_alert=True)
+            return
+            
+        course_id = session["course_id"]
+        new_code = session["new_course_code"]
+        old_code = session["old_course_code"]
+        
+        loading_msg_id = send_loading_message(bot, call.message.chat.id, " *Updating course...*")
+        
+        # Remove original confirmation message to avoid clutter
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+            
+        success = safe_db_operation(update_course_code, False, course_id, new_code)
+        
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
+        
+        if success:
+            edit_message_safe(
+                bot, call.message.chat.id, loading_msg_id,
+                f" ✅ *Success*\n\nCourse `{old_code}` has been successfully updated to `{new_code}`.",
+                parse_mode="Markdown", reply_markup=kb
+            )
+        else:
+            edit_message_safe(
+                bot, call.message.chat.id, loading_msg_id,
+                f" ❌ *Failed*\n\nCould not update the course code.",
+                parse_mode="Markdown", reply_markup=kb
+            )
+            
+        notes_sessions.pop(user_id, None)

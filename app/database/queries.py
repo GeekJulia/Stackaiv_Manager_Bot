@@ -411,6 +411,22 @@ def get_course_info(course_id):
                 return {"id": r[0], "course_code": r[1]}
             return None
 
+def update_course_code(course_id, new_course_code):
+    """Update the course code for a given course ID"""
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE courses
+                    SET course_code = %s
+                    WHERE id = %s
+                """, (new_course_code, course_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"ERROR: update_course_code failed - {str(e)}")
+        return False
+
 # -------------------------
 # NEW FUNCTIONS FOR START.PY
 # -------------------------
@@ -611,6 +627,21 @@ def get_group_program_id(telegram_chat_id):
             """, (telegram_chat_id,))
             result = cursor.fetchone()
             return result[0] if result else None
+
+def get_group_chats_by_program_id(program_id):
+    """Get all telegram group chat IDs linked to a program"""
+    try:
+        with pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT telegram_chat_id
+                    FROM groups
+                    WHERE program_id = %s
+                """, (program_id,))
+                return [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"ERROR: get_group_chats_by_program_id failed - {str(e)}")
+        return []
 
 def check_duplicate_resource(course_id, resource_type_id, file_name):
     """Check if a resource with the same filename already exists"""

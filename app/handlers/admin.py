@@ -639,9 +639,9 @@ def admin_handler(bot):
 
                 bot.send_message(
                     call.message.chat.id,
-                    f" *Broadcasting to {total_users} users\\.\\.\\.*\n\n"
-                    f"This may take a while\\. You will be notified when done\\.",
-                    parse_mode="MarkdownV2"
+                    f" *Broadcasting to {total_users} users...*\n\n"
+                    f"This may take a while. You will be notified when done.",
+                    parse_mode="Markdown"
                 )
 
                 for user in users:

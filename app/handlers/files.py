@@ -7,6 +7,7 @@ from ..database.queries import (
     get_user_program_id,
     get_courses_by_program,
     get_resource_types,
+    get_group_chats_by_program_id,
     save_resource,
     get_resources_by_course_and_type,
     get_all_resources_by_course,
@@ -224,7 +225,20 @@ def files_handler(bot):
                     text += f"• {c['course_code']}\n"
                 
                 kb = InlineKeyboardMarkup()
-                kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                
+                # Check Hub Creator/Admin
+                is_admin = str(user_id) == str(os.getenv("ADMIN_ID"))
+                creator = safe_db_operation(get_program_creator, None, program_id)
+                is_creator = creator and creator['telegram_id'] == user_id
+                
+                if is_admin or is_creator:
+                    kb.add(
+                        InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"),
+                        InlineKeyboardButton("✏️ Edit Course", callback_data="notes:edit_course")
+                    )
+                else:
+                    kb.add(InlineKeyboardButton("➕ Add Courses", callback_data="notes:add_courses"))
+                    
                 kb.add(InlineKeyboardButton("⬅️ Back to Hub", callback_data="hub:enter_own"))
                 
                 edit_message_safe(
@@ -988,6 +1002,28 @@ def files_handler(bot):
             result_msg,
             parse_mode="Markdown"
         )
+        
+        # Broadcast to program's group chats if any files were successfully uploaded
+        if success_count > 0:
+            program_id = get_active_program_id(user_id)
+            if program_id:
+                group_chats = safe_db_operation(get_group_chats_by_program_id, [], program_id)
+                if group_chats:
+                    first_file = queue[0]
+                    course_info = safe_db_operation(get_course_info, None, first_file['course_id'])
+                    course_code = course_info['course_code'] if course_info else "a course"
+                    
+                    uploader_username = call.from_user.username
+                    uploader_display = f"@{uploader_username}" if uploader_username else call.from_user.first_name
+                    
+                    note_word = "notes" if success_count != 1 else "note"
+                    broadcast_msg = f" 📚 {success_count} {note_word} have been added for {course_code} by {uploader_display}"
+                    
+                    for chat_id in group_chats:
+                        try:
+                            bot.send_message(chat_id, broadcast_msg)
+                        except Exception as e:
+                            print(f"Failed to broadcast to group {chat_id}: {e}")
         
         # Clean up
         file_batch_queues.pop(user_id, None)
