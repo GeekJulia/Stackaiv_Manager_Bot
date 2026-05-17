@@ -957,6 +957,7 @@ def get_all_users():
             cursor.execute("""
                 SELECT MIN(id) AS id, telegram_id, MAX(username) AS username, MAX(first_name) AS first_name
                 FROM users
+                WHERE telegram_id IS NOT NULL
                 GROUP BY telegram_id
                 ORDER BY id DESC
             """)

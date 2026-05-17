@@ -23,15 +23,29 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 def send_with_retry(bot, telegram_id, text, retries=3):
     """Send a message with retry logic and exponential backoff for transient errors."""
+    last_error = "Unknown error"
     for attempt in range(retries):
         try:
             bot.send_message(telegram_id, text, parse_mode="Markdown")
-            return True
+            return True, None
         except Exception as e:
+            err_str = str(e)
+            last_error = err_str
+            if "parse" in err_str.lower() or "markdown" in err_str.lower() or "entity" in err_str.lower():
+                # Fallback to plain text if markdown is invalid
+                try:
+                    bot.send_message(telegram_id, text)
+                    return True, None
+                except Exception as plain_e:
+                    print(f"Fallback send failed for {telegram_id}: {plain_e}")
+                    return False, str(plain_e)
+            
             if attempt < retries - 1:
                 time.sleep(1 * (attempt + 1))  # backoff: 1s, 2s
             else:
-                return False
+                print(f"Broadcast failed to {telegram_id} after retries: {e}")
+                return False, last_error
+    return False, last_error
 
 
 def admin_handler(bot):
@@ -644,29 +658,61 @@ def admin_handler(bot):
                     parse_mode="Markdown"
                 )
 
+                
+                log_entries = []
+
                 for user in users:
-                    success = send_with_retry(
+                    success, err_reason = send_with_retry(
                         bot,
                         user['telegram_id'],
                         f" *Announcement from Stackaiv*\n\n{broadcast_text}"
                     )
                     if success:
                         sent_count += 1
+                        log_entries.append(f"SUCCESS - User ID: {user['telegram_id']} (@{user.get('username', 'N/A')})")
                     else:
                         failed_count += 1
+                        log_entries.append(f"FAILED  - User ID: {user['telegram_id']} (@{user.get('username', 'N/A')}) - Reason: {err_reason}")
 
                     # 50ms delay between each send — stays within Telegram's 30 msg/sec limit
                     time.sleep(0.05)
+                    
+                # Write log to file
+                log_filename = f"broadcast_log_{int(time.time())}.txt"
+                try:
+                    with open(log_filename, "w", encoding="utf-8") as f:
+                        f.write(f"Broadcast Log\nTotal Users: {total_users}\n")
+                        f.write(f"Message:\n{broadcast_text}\n")
+                        f.write("-" * 40 + "\n")
+                        f.write("\n".join(log_entries))
+                except Exception as log_e:
+                    print(f"Could not write log file: {log_e}")
 
-                bot.send_message(
-                    call.message.chat.id,
-                    (
-                        f" *Broadcast Complete*\n\n"
-                        f"Successfully sent: {sent_count}\n"
-                        f"Failed: {failed_count}"
-                    ),
-                    parse_mode="Markdown"
-                )
+                # Send log file to admin
+                try:
+                    with open(log_filename, "rb") as f:
+                        bot.send_document(
+                            call.message.chat.id,
+                            f,
+                            caption=(
+                                f" *Broadcast Complete*\n\n"
+                                f"Successfully sent: {sent_count}\n"
+                                f"Failed: {failed_count}\n\n"
+                                f"Check the attached log file for details."
+                            ),
+                            parse_mode="Markdown"
+                        )
+                except Exception as e:
+                    bot.send_message(
+                        call.message.chat.id,
+                        (
+                            f" *Broadcast Complete*\n\n"
+                            f"Successfully sent: {sent_count}\n"
+                            f"Failed: {failed_count}\n\n"
+                            f"(Could not send log file: {e})"
+                        ),
+                        parse_mode="Markdown"
+                    )
 
             except Exception as e:
                 bot.send_message(
