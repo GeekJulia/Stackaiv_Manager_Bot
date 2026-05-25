@@ -111,6 +111,7 @@ def handle_hub_access(bot, chat_id, program, user_id, message_id=None, extra_tex
         # Show activation prompt
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton(" 💳 Activate Hub (\u20a63,000)", callback_data="action:activate_hub"))
+        kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
         kb.add(InlineKeyboardButton(" 📞 Contact Admin", callback_data="action:contact_admin"))
         
         # Prepare session for activation callback
@@ -422,6 +423,7 @@ def start_handler(bot):
 
                         kb = InlineKeyboardMarkup()
                         kb.add(InlineKeyboardButton(" 💳 Activate Hub (\u20a63,000)", callback_data="action:activate_hub"))
+                        kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
 
                         edit_message_safe(
                             bot,
@@ -447,6 +449,7 @@ def start_handler(bot):
                 if active_count < 5:
                     kb = InlineKeyboardMarkup()
                     kb.add(InlineKeyboardButton(" 🚀 Activate for FREE", callback_data="action:activate_hub"))
+                    kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
                     
                     edit_message_safe(
                         bot,
@@ -460,6 +463,7 @@ def start_handler(bot):
                 else:
                     kb = InlineKeyboardMarkup()
                     kb.add(InlineKeyboardButton(" Activate", callback_data="action:activate_hub"))
+                    kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
                     
                     edit_message_safe(
                         bot,
@@ -574,6 +578,7 @@ def start_handler(bot):
             if pay_data and pay_data.get('status'):
                 kb = InlineKeyboardMarkup()
                 kb.add(InlineKeyboardButton(" 💳 Pay ₦3,000", url=pay_data['authorization_url']))
+                kb.add(InlineKeyboardButton(" 📝 Re-register Details", callback_data="hub:update_details"))
                 kb.add(InlineKeyboardButton(" Back to Home", callback_data="action:goto_home"))
                 
                 activation_msg = (
