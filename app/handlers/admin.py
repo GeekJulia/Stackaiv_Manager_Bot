@@ -21,18 +21,18 @@ admin_sessions = TTLDict()
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 
-def send_with_retry(bot, telegram_id, text, retries=3):
+def send_with_retry(bot, telegram_id, text, parse_mode="Markdown", retries=3):
     """Send a message with retry logic and exponential backoff for transient errors."""
     last_error = "Unknown error"
     for attempt in range(retries):
         try:
-            bot.send_message(telegram_id, text, parse_mode="Markdown")
+            bot.send_message(telegram_id, text, parse_mode=parse_mode)
             return True, None
         except Exception as e:
             err_str = str(e)
             last_error = err_str
-            if "parse" in err_str.lower() or "markdown" in err_str.lower() or "entity" in err_str.lower():
-                # Fallback to plain text if markdown is invalid
+            if "parse" in err_str.lower() or "markdown" in err_str.lower() or "entity" in err_str.lower() or "html" in err_str.lower():
+                # Fallback to plain text if formatting is invalid
                 try:
                     bot.send_message(telegram_id, text)
                     return True, None
@@ -590,7 +590,8 @@ def admin_handler(bot):
     @bot.message_handler(func=lambda m: admin_sessions.get(m.from_user.id, {}).get("stage") == "awaiting_broadcast_message")
     def receive_broadcast_message(message):
         user_id = message.from_user.id
-        broadcast_text = message.text
+        # Use html_text to preserve formatting entities
+        broadcast_text = message.html_text
 
         try:
             users = get_all_users()
@@ -614,11 +615,11 @@ def admin_handler(bot):
             bot.send_message(
                 message.chat.id,
                 (
-                    f" *Confirm Broadcast*\n\n"
+                    f"<b>Confirm Broadcast</b>\n\n"
                     f"Message:\n\n{broadcast_text}\n\n"
                     f"This will be sent to {len(users)} users."
                 ),
-                parse_mode="Markdown",
+                parse_mode="HTML",
                 reply_markup=kb
             )
 
@@ -665,7 +666,8 @@ def admin_handler(bot):
                     success, err_reason = send_with_retry(
                         bot,
                         user['telegram_id'],
-                        f"{broadcast_text}"
+                        f"{broadcast_text}",
+                        parse_mode="HTML"
                     )
                     if success:
                         sent_count += 1
